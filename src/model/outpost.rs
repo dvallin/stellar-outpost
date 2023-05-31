@@ -1,30 +1,25 @@
-use crate::domain::crew::CrewMember;
-use crate::domain::modules::living_quarters::LivingQuarters;
-use crate::domain::modules::power_generator::PowerGenerator;
-use crate::domain::modules::Module;
-use crate::domain::resources::Resources;
+use crate::model::crew::CrewMember;
+use crate::model::modules::living_quarters::LivingQuarters;
+use crate::model::modules::power_generator::PowerGenerator;
+use crate::model::modules::Module;
+use crate::model::resources::Resources;
 use core::cmp::min;
 
+use super::crew::CrewRepository;
+use super::modules::ModuleRepository;
+
 pub struct Outpost {
+    pub resources: Resources,
     pub modules: Vec<Box<dyn Module>>,
     pub crew: Vec<CrewMember>,
-    pub resources: Resources,
 }
 
 impl Outpost {
     pub fn new() -> Self {
-        let power_generator = Box::new(PowerGenerator::new("power")) as Box<dyn Module>;
-        let mut quarters = Box::new(LivingQuarters::new("quarters")) as Box<dyn Module>;
-        quarters.set_energy_level(2);
+        let mut s = Self {
+            crew: vec![],
+            modules: vec![],
 
-        Self {
-            modules: vec![power_generator, quarters],
-            crew: vec![
-                CrewMember::new("a"),
-                CrewMember::new("b"),
-                CrewMember::new("c"),
-                CrewMember::new("d"),
-            ],
             resources: Resources {
                 energy: 0,
                 living_space: 0,
@@ -32,7 +27,41 @@ impl Outpost {
                 food: 10,
                 water: 10,
             },
-        }
+        };
+
+        let power_generator = Box::new(PowerGenerator::new("power"));
+        s.add_module(power_generator);
+
+        let mut quarters = Box::new(LivingQuarters::new("quarters"));
+        quarters.set_energy_level(2);
+        s.add_module(quarters);
+
+        s.add_crew_member(CrewMember::new("a"));
+        s.add_crew_member(CrewMember::new("b"));
+        s.add_crew_member(CrewMember::new("c"));
+        s.add_crew_member(CrewMember::new("d"));
+
+        s
+    }
+
+    pub fn add_crew_member(&mut self, crew_member: CrewMember) {
+        self.crew.push(crew_member)
+    }
+    pub fn mut_crew_member(&mut self, crew_name: &String) -> Option<&mut CrewMember> {
+        self.crew.iter_mut().find(|m| crew_name.eq(m.name()))
+    }
+    pub fn crew_member(&self, crew_name: &String) -> Option<&CrewMember> {
+        self.crew.iter().find(|m| crew_name.eq(m.name()))
+    }
+
+    pub fn add_module(&mut self, module: Box<dyn Module>) {
+        self.modules.push(module)
+    }
+    pub fn mut_module(&mut self, module_name: &String) -> Option<&mut Box<dyn Module>> {
+        self.modules.iter_mut().find(|m| module_name.eq(m.name()))
+    }
+    pub fn module(&self, module_name: &String) -> Option<&Box<dyn Module>> {
+        self.modules.iter().find(|m| module_name.eq(m.name()))
     }
 
     pub fn finish_turn(&mut self) {
@@ -46,12 +75,8 @@ impl Outpost {
         self.apply_status_effects();
     }
 
-    pub fn assign_crew_member_to_module(
-        &mut self,
-        crew_name: &'static str,
-        module_name: &'static str,
-    ) {
-        let crew = self.crew.iter_mut().find(|m| m.name() == crew_name);
+    pub fn assign_crew_member_to_module(&mut self, crew_name: &String, module_name: &String) {
+        let crew = self.mut_crew_member(crew_name);
         crew.map(|c| c.assign_to_module(module_name));
     }
 
@@ -101,20 +126,8 @@ impl Outpost {
     fn support_modules(&mut self) {
         let missing_energy = self.consumption().energy - self.resources.energy;
         if missing_energy > 0 {
-            self.sort_modules_by_priority();
             self.cut_energy(missing_energy);
         }
-    }
-
-    fn sort_modules_by_priority(&mut self) {
-        self.modules.sort_by(|a, b| {
-            let priority_cmp = a.priority().cmp(&b.priority());
-            match priority_cmp {
-                std::cmp::Ordering::Equal => a.consumption().cmp(&b.consumption()),
-                std::cmp::Ordering::Less => std::cmp::Ordering::Greater,
-                std::cmp::Ordering::Greater => std::cmp::Ordering::Less,
-            }
-        });
     }
 
     fn cut_energy(&mut self, mut missing_energy: i32) {
@@ -147,11 +160,12 @@ impl Outpost {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::modules::farm::Farm;
-    use crate::domain::modules::mine::Mine;
-    use crate::domain::modules::water_extractor::WaterExtractor;
-    use crate::domain::modules::Module;
-    use crate::domain::outpost::Outpost;
+    use crate::model::crew::CrewRepository;
+    use crate::model::modules::farm::Farm;
+    use crate::model::modules::mine::Mine;
+    use crate::model::modules::water_extractor::WaterExtractor;
+    use crate::model::modules::{Module, ModuleRepository};
+    use crate::model::outpost::Outpost;
 
     #[test]
     fn finish_turn_stores_production() {
@@ -211,12 +225,7 @@ mod tests {
         let assert_consumption = |expected: i32, name: &str| {
             assert_eq!(
                 expected,
-                o.modules
-                    .iter()
-                    .find(|m| m.name() == name)
-                    .unwrap()
-                    .consumption()
-                    .energy,
+                o.module(&name.to_string()).unwrap().consumption().energy,
                 "{} should have energy {}",
                 name,
                 expected

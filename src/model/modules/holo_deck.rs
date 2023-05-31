@@ -1,23 +1,23 @@
-use crate::domain::crew::CrewMember;
-use crate::domain::modules::Module;
-use crate::domain::modules::ModulePriority;
-use crate::domain::resources::Resources;
-use crate::domain::stats::Stats;
-use crate::domain::status_effect::StatusEffect;
+use crate::model::crew::CrewMember;
+use crate::model::modules::Module;
+use crate::model::modules::ModulePriority;
+use crate::model::resources::Resources;
+use crate::model::stats::Stats;
+use crate::model::status_effect::StatusEffect;
 use core::cmp::max;
 use core::cmp::min;
 
 pub struct HoloDeck {
     energy_level: i32,
-    name: &'static str,
+    name: String,
     stats: Stats,
 }
 
 impl HoloDeck {
-    pub fn new(name: &'static str) -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
             energy_level: 1,
-            name,
+            name: name.to_string(),
             stats: Stats::zero(),
         }
     }
@@ -28,7 +28,7 @@ impl HoloDeck {
 }
 
 impl Module for HoloDeck {
-    fn name(&self) -> &str {
+    fn name(&self) -> &String {
         &self.name
     }
 

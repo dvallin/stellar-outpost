@@ -1,21 +1,21 @@
-use crate::domain::crew::CrewMember;
-use crate::domain::modules::Module;
-use crate::domain::modules::ModulePriority;
-use crate::domain::resources::Resources;
-use crate::domain::status_effect::StatusEffect;
+use crate::model::crew::CrewMember;
+use crate::model::modules::Module;
+use crate::model::modules::ModulePriority;
+use crate::model::resources::Resources;
+use crate::model::status_effect::StatusEffect;
 use core::cmp::max;
 use core::cmp::min;
 
 pub struct WaterExtractor {
     energy_level: i32,
-    name: &'static str,
+    name: String,
 }
 
 impl WaterExtractor {
-    pub fn new(name: &'static str) -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
             energy_level: 1,
-            name,
+            name: name.to_string(),
         }
     }
 }
@@ -25,7 +25,7 @@ pub fn production_bonus(crew: &CrewMember) -> i32 {
 }
 
 impl Module for WaterExtractor {
-    fn name(&self) -> &str {
+    fn name(&self) -> &String {
         &self.name
     }
 
@@ -56,7 +56,7 @@ impl Module for WaterExtractor {
 }
 
 mod tests {
-    use crate::domain::{crew::CrewMember, stats::Stats};
+    use crate::model::{crew::CrewMember, stats::Stats};
 
     use super::production_bonus;
 
