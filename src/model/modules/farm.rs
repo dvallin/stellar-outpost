@@ -54,8 +54,9 @@ impl Module for Farm {
     fn finish_turn(&self) {}
 }
 
+#[cfg(test)]
 mod tests {
-    use crate::model::{crew::CrewMember, stats::Stats};
+    use crate::model::stats::Stats;
 
     use super::production_bonus;
 

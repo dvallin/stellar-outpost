@@ -21,6 +21,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df8670b8c7b9dae1793364eafadf7239c40d669904660c5960d74cfd80b46a53"
 
 [[package]]
+name = "catppuccin"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5db0baaeef77583104bf08a4c0040f57540e636e341ff7e7d4711489dd16daaf"
+
+[[package]]
 name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -55,6 +61,7 @@ dependencies = [
 name = "hello-world"
 version = "0.1.0"
 dependencies = [
+ "catppuccin",
  "crossterm",
  "tui",
  "unicode-width",

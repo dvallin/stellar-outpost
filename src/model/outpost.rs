@@ -5,9 +5,6 @@ use crate::model::modules::Module;
 use crate::model::resources::Resources;
 use core::cmp::min;
 
-use super::crew::CrewRepository;
-use super::modules::ModuleRepository;
-
 pub struct Outpost {
     pub resources: Resources,
     pub modules: Vec<Box<dyn Module>>,
@@ -55,7 +52,17 @@ impl Outpost {
     }
 
     pub fn add_module(&mut self, module: Box<dyn Module>) {
-        self.modules.push(module)
+        self.modules.push(module);
+    }
+    fn sort_modules_asc_by_priority(&mut self) {
+        self.modules.sort_by(|a, b| {
+            let priority_cmp = a.priority().cmp(&b.priority());
+            match priority_cmp {
+                std::cmp::Ordering::Equal => a.consumption().cmp(&b.consumption()),
+                std::cmp::Ordering::Less => std::cmp::Ordering::Greater,
+                std::cmp::Ordering::Greater => std::cmp::Ordering::Less,
+            }
+        });
     }
     pub fn mut_module(&mut self, module_name: &String) -> Option<&mut Box<dyn Module>> {
         self.modules.iter_mut().find(|m| module_name.eq(m.name()))
@@ -88,9 +95,8 @@ impl Outpost {
             .unwrap_or_else(Resources::zero)
     }
 
-    fn store_production(&mut self) {
-        let production = self
-            .modules
+    pub fn production(&self) -> Resources {
+        self.modules
             .iter()
             .map(|m| {
                 m.production(
@@ -101,8 +107,11 @@ impl Outpost {
                 )
             })
             .reduce(|a, b| a + b)
-            .unwrap_or_else(Resources::zero);
-        self.resources += production
+            .unwrap_or_else(Resources::zero)
+    }
+
+    fn store_production(&mut self) {
+        self.resources += self.production();
     }
 
     fn support_crew(&mut self) {
@@ -131,7 +140,10 @@ impl Outpost {
     }
 
     fn cut_energy(&mut self, mut missing_energy: i32) {
-        // cut as much energy as necessary
+        // sorting the modules by priority
+        self.sort_modules_asc_by_priority();
+
+        // now cut greedily as much energy as necessary
         for m in self.modules.iter_mut() {
             let module_consumption = m.consumption();
             let energy_cut = min(module_consumption.energy, missing_energy);
@@ -160,11 +172,10 @@ impl Outpost {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::crew::CrewRepository;
     use crate::model::modules::farm::Farm;
     use crate::model::modules::mine::Mine;
     use crate::model::modules::water_extractor::WaterExtractor;
-    use crate::model::modules::{Module, ModuleRepository};
+    use crate::model::modules::Module;
     use crate::model::outpost::Outpost;
 
     #[test]
@@ -234,7 +245,7 @@ mod tests {
 
         assert_consumption(0, "mine1");
         assert_consumption(0, "mine2");
-        assert_consumption(2, "farm1");
-        assert_consumption(3, "water_extractor1");
+        assert_consumption(3, "farm1");
+        assert_consumption(2, "water_extractor1");
     }
 }

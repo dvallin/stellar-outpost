@@ -1,6 +1,4 @@
 use super::{modules::Module, stats::Stats, status_effect::StatusEffect};
-use std::slice::Iter;
-use std::slice::IterMut;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct CrewMember {
@@ -56,29 +54,5 @@ impl CrewMember {
         match e {
             StatusEffect::GainStat(s) => self.stats += s.clone(),
         }
-    }
-}
-
-pub struct CrewRepository {
-    crew: Vec<CrewMember>,
-}
-
-impl CrewRepository {
-    pub fn new() -> Self {
-        Self { crew: vec![] }
-    }
-
-    pub fn crew(&self) -> Iter<CrewMember> {
-        self.crew.iter()
-    }
-    pub fn crew_mut(&mut self) -> IterMut<CrewMember> {
-        self.crew.iter_mut()
-    }
-
-    pub fn add(&mut self, crew: CrewMember) {
-        self.crew.push(crew)
-    }
-    pub fn clear(&mut self) {
-        self.crew.clear()
     }
 }

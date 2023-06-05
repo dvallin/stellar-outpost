@@ -1,54 +1,72 @@
-/// A simple example demonstrating how to handle user input. This is
-/// a bit out of the scope of the library as it does not provide any
-/// input handling out of the box. However, it may helps some to get
-/// started.
-///
-/// This is a very simple example:
-///   * A input box always focused. Every character you type is registered
-///   here
-///   * Pressing Backspace erases a character
-///   * Pressing Enter pushes the current input in the history of previous
-///   messages
+use catppuccin::{Colour, Flavour};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use model::outpost::Outpost;
 use std::{error::Error, io};
 use tui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Span, Spans, Text},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    text::{Span, Spans},
+    widgets::{Block, Borders, Paragraph, Tabs, Wrap},
     Frame, Terminal,
 };
-use unicode_width::UnicodeWidthStr;
 
 mod model;
 
-enum InputMode {
-    Normal,
-    Editing,
-}
-
-/// App holds the state of the application
 struct App {
-    /// Current value of the input box
-    input: String,
-    /// Current input mode
-    input_mode: InputMode,
-    /// History of recorded messages
-    messages: Vec<String>,
+    pub index: usize,
+    pub outpost: Outpost,
+    pub palette: Flavour,
+
+    pub initial_views: Vec<View>,
+    pub view: View,
 }
 
-impl Default for App {
-    fn default() -> App {
+#[derive(Clone)]
+enum View {
+    Outpost(usize),
+    Crew(usize),
+    Region(usize, usize),
+}
+
+impl std::string::ToString for View {
+    fn to_string(&self) -> String {
+        let s = match self {
+            View::Outpost(_) => "Outpost",
+            View::Crew(_) => "Crew",
+            View::Region(_, _) => "Region",
+        };
+        s.to_string()
+    }
+}
+
+impl App {
+    fn new() -> App {
         App {
-            input: String::new(),
-            input_mode: InputMode::Normal,
-            messages: Vec::new(),
+            index: 0,
+            outpost: Outpost::new(),
+            palette: Flavour::Mocha,
+            initial_views: vec![View::Outpost(0), View::Crew(0), View::Region(0, 0)],
+            view: View::Outpost(0),
         }
+    }
+
+    pub fn next(&mut self) {
+        self.index = (self.index + 1) % self.initial_views.len();
+        self.view = self.initial_views[self.index].clone()
+    }
+
+    pub fn previous(&mut self) {
+        if self.index > 0 {
+            self.index -= 1;
+        } else {
+            self.index = self.initial_views.len() - 1;
+        }
+        self.view = self.initial_views[self.index].clone()
     }
 }
 
@@ -61,7 +79,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     // create app and run it
-    let app = App::default();
+    let app = App::new();
     let res = run_app(&mut terminal, app);
 
     // restore terminal
@@ -85,110 +103,205 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
         terminal.draw(|f| ui(f, &app))?;
 
         if let Event::Key(key) = event::read()? {
-            match app.input_mode {
-                InputMode::Normal => match key.code {
-                    KeyCode::Char('e') => {
-                        app.input_mode = InputMode::Editing;
-                    }
-                    KeyCode::Char('q') => {
-                        return Ok(());
-                    }
-                    _ => {}
-                },
-                InputMode::Editing => match key.code {
-                    KeyCode::Enter => {
-                        app.messages.push(app.input.drain(..).collect());
-                    }
-                    KeyCode::Char(c) => {
-                        app.input.push(c);
-                    }
-                    KeyCode::Backspace => {
-                        app.input.pop();
-                    }
-                    KeyCode::Esc => {
-                        app.input_mode = InputMode::Normal;
-                    }
-                    _ => {}
-                },
+            match key.code {
+                KeyCode::Char('q') => return Ok(()),
+                KeyCode::Right => app.next(),
+                KeyCode::Left => app.previous(),
+                _ => {}
             }
         }
     }
 }
 
+fn print_i32(v: i32) -> String {
+    if v >= 0 {
+        format!("+{}", v)
+    } else {
+        v.to_string()
+    }
+}
+
+fn header<'a>(app: &App) -> Paragraph<'a> {
+    let consumption = app.outpost.consumption();
+    let production = app.outpost.production();
+    let text = vec![Spans::from(vec![
+        Span::styled(
+            format!(
+                "{}/{}",
+                consumption.energy.to_string(),
+                app.outpost.resources.energy.to_string(),
+            ),
+            Style::default().fg(to_color(app.palette.yellow())),
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            format!(
+                "{}/{}",
+                consumption.living_space.to_string(),
+                app.outpost.resources.living_space.to_string(),
+            ),
+            Style::default().fg(to_color(app.palette.peach())),
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            format!(
+                "{}({})",
+                app.outpost.resources.minerals.to_string(),
+                print_i32(production.minerals - consumption.minerals),
+            ),
+            Style::default().fg(to_color(app.palette.sapphire())),
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            format!(
+                "{}({})",
+                app.outpost.resources.food.to_string(),
+                print_i32(production.food - consumption.food),
+            ),
+            Style::default().fg(to_color(app.palette.green())),
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            format!(
+                "{}({})",
+                app.outpost.resources.water.to_string(),
+                print_i32(production.water - consumption.water),
+            ),
+            Style::default().fg(to_color(app.palette.blue())),
+        ),
+    ])];
+
+    Paragraph::new(text)
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true })
+}
+
+fn tabs<'a>(app: &App) -> Tabs<'a> {
+    let titles = app
+        .initial_views
+        .iter()
+        .map(|v| {
+            let string = v.to_string();
+            let (first, rest) = string.split_at(1);
+            Spans::from(vec![
+                Span::styled(
+                    first.to_owned(),
+                    Style::default().fg(to_color(app.palette.rosewater())),
+                ),
+                Span::styled(
+                    rest.to_owned(),
+                    Style::default().fg(to_color(app.palette.text())),
+                ),
+            ])
+        })
+        .collect();
+    Tabs::new(titles)
+        .block(Block::default().borders(Borders::ALL))
+        .select(app.index)
+        .highlight_style(
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .bg(to_color(app.palette.overlay0())),
+        )
+}
+
+fn outpost<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
+    let modules = app
+        .outpost
+        .modules
+        .iter()
+        .map(|m| {
+            Spans::from(vec![Span::styled(
+                m.name(),
+                Style::default().fg(to_color(app.palette.text())),
+            )])
+        })
+        .collect();
+    let index = match app.view {
+        View::Outpost(index) => index,
+        _ => 0,
+    };
+
+    f.render_widget(
+        Tabs::new(modules)
+            .block(Block::default().borders(Borders::ALL))
+            .select(index)
+            .highlight_style(
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .bg(to_color(app.palette.overlay0())),
+            ),
+        area,
+    )
+}
+fn crew<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
+    let modules = app
+        .outpost
+        .crew
+        .iter()
+        .map(|m| {
+            Spans::from(vec![Span::styled(
+                m.name(),
+                Style::default().fg(to_color(app.palette.text())),
+            )])
+        })
+        .collect();
+    let index = match app.view {
+        View::Outpost(index) => index,
+        _ => 0,
+    };
+
+    f.render_widget(
+        Tabs::new(modules)
+            .block(Block::default().borders(Borders::ALL))
+            .select(index)
+            .highlight_style(
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .bg(to_color(app.palette.overlay0())),
+            ),
+        area,
+    )
+}
+fn region<B: Backend>(f: &mut Frame<B>, _app: &App, area: Rect) {
+    f.render_widget(Block::default(), area)
+}
+
+fn to_color(value: Colour) -> Color {
+    let (r, g, b) = value.into();
+    Color::Rgb(r, g, b)
+}
+
 fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
+    let size = f.size();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .margin(2)
+        .margin(5)
         .constraints(
             [
                 Constraint::Length(1),
+                Constraint::Min(0),
                 Constraint::Length(3),
-                Constraint::Min(1),
             ]
             .as_ref(),
         )
-        .split(f.size());
+        .split(size);
 
-    let (msg, style) = match app.input_mode {
-        InputMode::Normal => (
-            vec![
-                Span::raw("Press "),
-                Span::styled("q", Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(" to exit, "),
-                Span::styled("e", Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(" to start editing."),
-            ],
-            Style::default().add_modifier(Modifier::RAPID_BLINK),
-        ),
-        InputMode::Editing => (
-            vec![
-                Span::raw("Press "),
-                Span::styled("Esc", Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(" to stop editing, "),
-                Span::styled("Enter", Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(" to record the message"),
-            ],
-            Style::default(),
-        ),
-    };
-    let mut text = Text::from(Spans::from(msg));
-    text.patch_style(style);
-    let help_message = Paragraph::new(text);
-    f.render_widget(help_message, chunks[0]);
+    let block = Block::default().style(
+        Style::default()
+            .bg(to_color(app.palette.base()))
+            .fg(to_color(app.palette.text())),
+    );
+    f.render_widget(block, size);
 
-    let input = Paragraph::new(app.input.as_ref())
-        .style(match app.input_mode {
-            InputMode::Normal => Style::default(),
-            InputMode::Editing => Style::default().fg(Color::Yellow),
-        })
-        .block(Block::default().borders(Borders::ALL).title("Input"));
-    f.render_widget(input, chunks[1]);
-    match app.input_mode {
-        InputMode::Normal =>
-            // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
-            {}
+    f.render_widget(header(app), chunks[0]);
 
-        InputMode::Editing => {
-            // Make the cursor visible and ask tui-rs to put it at the specified coordinates after rendering
-            f.set_cursor(
-                // Put cursor past the end of the input text
-                chunks[1].x + app.input.width() as u16 + 1,
-                // Move one line down, from the border to the input line
-                chunks[1].y + 1,
-            )
-        }
+    match app.index {
+        0 => outpost(f, app, chunks[1]),
+        1 => crew(f, app, chunks[1]),
+        2 => region(f, app, chunks[1]),
+        _ => unreachable!(),
     }
 
-    let messages: Vec<ListItem> = app
-        .messages
-        .iter()
-        .enumerate()
-        .map(|(i, m)| {
-            let content = vec![Spans::from(Span::raw(format!("{}: {}", i, m)))];
-            ListItem::new(content)
-        })
-        .collect();
-    let messages =
-        List::new(messages).block(Block::default().borders(Borders::ALL).title("Messages"));
-    f.render_widget(messages, chunks[2]);
+    f.render_widget(tabs(app), chunks[2]);
 }
