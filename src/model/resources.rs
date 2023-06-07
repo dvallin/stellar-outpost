@@ -1,7 +1,9 @@
 use std::ops::Add;
 use std::ops::AddAssign;
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize)]
 pub struct Resources {
     pub energy: i32,
     pub living_space: i32,

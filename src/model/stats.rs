@@ -1,7 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::ops::Add;
 use std::ops::AddAssign;
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize)]
 pub struct Stats {
     pub biology: i32,
     pub chemistry: i32,

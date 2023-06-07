@@ -5,7 +5,9 @@ use crate::model::resources::Resources;
 use crate::model::status_effect::StatusEffect;
 use core::cmp::max;
 use core::cmp::min;
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize)]
 pub struct WaterExtractor {
     energy_level: i32,
     name: String,
@@ -24,6 +26,7 @@ pub fn production_bonus(crew: &CrewMember) -> i32 {
     ((crew.stats.chemistry as f32) / 3.0).ceil() as i32
 }
 
+#[typetag::serde]
 impl Module for WaterExtractor {
     fn name(&self) -> &String {
         &self.name

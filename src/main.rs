@@ -18,55 +18,145 @@ use tui::{
 mod model;
 
 struct App {
-    pub index: usize,
     pub outpost: Outpost,
     pub palette: Flavour,
 
-    pub initial_views: Vec<View>,
-    pub view: View,
+    pub state: Vec<State>,
 }
 
 #[derive(Clone)]
-enum View {
+enum State {
+    GameMenu,
     Outpost(usize),
     Crew(usize),
+    Research(usize),
     Region(usize, usize),
 }
 
-impl std::string::ToString for View {
+impl State {
+    fn transitions(&self) -> Vec<StateTransition> {
+        use State::*;
+        use StateTransition::*;
+        match *self {
+            GameMenu => vec![PopState(KeyCode::Esc), QuitAndSave(KeyCode::Char('q'))],
+            Outpost(_) => vec![
+                PushState(KeyCode::Esc, GameMenu),
+                ReplaceState(KeyCode::Tab, Crew(0)),
+            ],
+            Crew(_) => vec![
+                PushState(KeyCode::Esc, GameMenu),
+                ReplaceState(KeyCode::Tab, Research(0)),
+            ],
+            Research(_) => vec![
+                PushState(KeyCode::Esc, GameMenu),
+                ReplaceState(KeyCode::Tab, Region(0, 0)),
+            ],
+            Region(_, _) => vec![
+                PushState(KeyCode::Esc, GameMenu),
+                ReplaceState(KeyCode::Tab, Outpost(0)),
+            ],
+        }
+    }
+}
+
+impl std::string::ToString for State {
     fn to_string(&self) -> String {
-        let s = match self {
-            View::Outpost(_) => "Outpost",
-            View::Crew(_) => "Crew",
-            View::Region(_, _) => "Region",
-        };
-        s.to_string()
+        use State::*;
+        match *self {
+            GameMenu => String::from("Game Menu"),
+            Outpost(_) => String::from("Outpost"),
+            Crew(_) => String::from("Crew"),
+            Region(_, _) => String::from("Region"),
+            Research(_) => String::from("Research"),
+        }
+    }
+}
+
+#[derive(Clone)]
+enum StateTransition {
+    PushState(KeyCode, State),
+    PopState(KeyCode),
+    ReplaceState(KeyCode, State),
+    QuitAndSave(KeyCode),
+}
+
+fn print_keycode(code: &KeyCode) -> String {
+    match code {
+        KeyCode::Char(c) => c.to_string(),
+        KeyCode::Esc => String::from("ESC"),
+        KeyCode::Tab => String::from("Tab"),
+        _ => String::from("??"),
+    }
+}
+impl std::string::ToString for StateTransition {
+    fn to_string(&self) -> String {
+        use StateTransition::*;
+        match self {
+            PushState(c, s) | ReplaceState(c, s) => {
+                format!("{}({})", s.to_string(), print_keycode(&c))
+            }
+            PopState(c) => format!("Back({})", print_keycode(&c)),
+            QuitAndSave(c) => format!("Quit&Save({})", print_keycode(&c)),
+        }
     }
 }
 
 impl App {
     fn new() -> App {
+        let input_path = "./saves/current.json";
+
+        let outpost: Outpost = std::fs::File::open(input_path)
+            .ok()
+            .and_then(|data| serde_json::from_reader(data).ok())
+            .unwrap_or_else(Outpost::new);
+
         App {
-            index: 0,
-            outpost: Outpost::new(),
+            outpost,
             palette: Flavour::Mocha,
-            initial_views: vec![View::Outpost(0), View::Crew(0), View::Region(0, 0)],
-            view: View::Outpost(0),
+            state: vec![State::Outpost(0)],
         }
     }
 
-    pub fn next(&mut self) {
-        self.index = (self.index + 1) % self.initial_views.len();
-        self.view = self.initial_views[self.index].clone()
+    fn current_state(&self) -> &State {
+        self.state.last().unwrap()
     }
 
-    pub fn previous(&mut self) {
-        if self.index > 0 {
-            self.index -= 1;
-        } else {
-            self.index = self.initial_views.len() - 1;
-        }
-        self.view = self.initial_views[self.index].clone()
+    fn input(&mut self, code: KeyCode) -> Option<io::Result<()>> {
+        use StateTransition::*;
+        let transitions = self.current_state().transitions();
+        let transition = transitions.iter().find(|t| match t {
+            PopState(c) | QuitAndSave(c) => c.eq(&code),
+            PushState(c, _) | ReplaceState(c, _) => c.eq(&code),
+        });
+        return match transition {
+            Some(transition) => match transition {
+                PopState(_) => {
+                    self.state.pop();
+                    if self.state.is_empty() {
+                        Some(Ok(()))
+                    } else {
+                        None
+                    }
+                }
+                PushState(_, s) => {
+                    self.state.push(s.clone());
+                    None
+                }
+                ReplaceState(_, s) => {
+                    self.state.pop();
+                    self.state.push(s.clone());
+                    None
+                }
+                QuitAndSave(_) => {
+                    let data = serde_json::to_string(&self.outpost).unwrap();
+                    let output_path = "./saves/current.json";
+                    std::fs::create_dir_all("./saves");
+                    std::fs::write(output_path, data);
+                    Some(Ok(()))
+                }
+            },
+            None => None,
+        };
     }
 }
 
@@ -103,12 +193,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
         terminal.draw(|f| ui(f, &app))?;
 
         if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Char('q') => return Ok(()),
-                KeyCode::Right => app.next(),
-                KeyCode::Left => app.previous(),
-                _ => {}
-            }
+            match app.input(key.code) {
+                Some(r) => return r,
+                None => (),
+            };
         }
     }
 }
@@ -121,7 +209,7 @@ fn print_i32(v: i32) -> String {
     }
 }
 
-fn header<'a>(app: &App) -> Paragraph<'a> {
+fn header<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
     let consumption = app.outpost.consumption();
     let production = app.outpost.production();
     let text = vec![Spans::from(vec![
@@ -171,38 +259,44 @@ fn header<'a>(app: &App) -> Paragraph<'a> {
         ),
     ])];
 
-    Paragraph::new(text)
-        .alignment(Alignment::Center)
-        .wrap(Wrap { trim: true })
+    f.render_widget(
+        Paragraph::new(text)
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true }),
+        area,
+    )
 }
 
-fn tabs<'a>(app: &App) -> Tabs<'a> {
-    let titles = app
-        .initial_views
+fn footer<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
+    let transitions = app.current_state().transitions();
+    let navigations: Vec<Span> = transitions
         .iter()
-        .map(|v| {
-            let string = v.to_string();
-            let (first, rest) = string.split_at(1);
-            Spans::from(vec![
-                Span::styled(
-                    first.to_owned(),
-                    Style::default().fg(to_color(app.palette.rosewater())),
-                ),
-                Span::styled(
-                    rest.to_owned(),
-                    Style::default().fg(to_color(app.palette.text())),
-                ),
-            ])
+        .map(|t| {
+            Span::styled(
+                t.to_string(),
+                Style::default().fg(to_color(app.palette.text())),
+            )
         })
         .collect();
-    Tabs::new(titles)
-        .block(Block::default().borders(Borders::ALL))
-        .select(app.index)
-        .highlight_style(
-            Style::default()
-                .add_modifier(Modifier::BOLD)
-                .bg(to_color(app.palette.overlay0())),
-        )
+
+    f.render_widget(
+        Paragraph::new(Spans::from(navigations))
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: true }),
+        area,
+    )
+}
+
+fn border(app: &App, title: String, focused: bool) -> Block {
+    let fg: Colour = if focused {
+        app.palette.lavender()
+    } else {
+        app.palette.overlay0()
+    };
+    Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(to_color(fg)))
 }
 
 fn outpost<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
@@ -217,14 +311,20 @@ fn outpost<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
             )])
         })
         .collect();
-    let index = match app.view {
-        View::Outpost(index) => index,
-        _ => 0,
+
+    let mut index: usize = 0;
+    let mut focused = false;
+    match app.current_state() {
+        State::Outpost(i) => {
+            index = *i;
+            focused = true
+        }
+        _ => (),
     };
 
     f.render_widget(
         Tabs::new(modules)
-            .block(Block::default().borders(Borders::ALL))
+            .block(border(app, String::from("Outpost"), focused))
             .select(index)
             .highlight_style(
                 Style::default()
@@ -246,14 +346,20 @@ fn crew<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
             )])
         })
         .collect();
-    let index = match app.view {
-        View::Outpost(index) => index,
-        _ => 0,
+
+    let mut index: usize = 0;
+    let mut focused = false;
+    match app.current_state() {
+        State::Crew(i) => {
+            index = *i;
+            focused = true
+        }
+        _ => (),
     };
 
     f.render_widget(
         Tabs::new(modules)
-            .block(Block::default().borders(Borders::ALL))
+            .block(border(app, String::from("Crew"), focused))
             .select(index)
             .highlight_style(
                 Style::default()
@@ -263,8 +369,29 @@ fn crew<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
         area,
     )
 }
-fn region<B: Backend>(f: &mut Frame<B>, _app: &App, area: Rect) {
-    f.render_widget(Block::default(), area)
+fn region<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
+    let mut focused = false;
+    match app.current_state() {
+        State::Region(_, _) => focused = true,
+        _ => (),
+    };
+    f.render_widget(border(app, String::from("Region"), focused), area)
+}
+fn research<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
+    let mut focused = false;
+    match app.current_state() {
+        State::Research(_) => focused = true,
+        _ => (),
+    };
+    f.render_widget(border(app, String::from("Research"), focused), area)
+}
+fn focus<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
+    f.render_widget(
+        Block::default()
+            .title(app.current_state().to_string())
+            .borders(Borders::ALL),
+        area,
+    )
 }
 
 fn to_color(value: Colour) -> Color {
@@ -273,8 +400,15 @@ fn to_color(value: Colour) -> Color {
 }
 
 fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
-    let size = f.size();
-    let chunks = Layout::default()
+    let window = f.size();
+    let block = Block::default().style(
+        Style::default()
+            .bg(to_color(app.palette.base()))
+            .fg(to_color(app.palette.text())),
+    );
+    f.render_widget(block, window);
+
+    let outer_layout = Layout::default()
         .direction(Direction::Vertical)
         .margin(5)
         .constraints(
@@ -285,23 +419,38 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             ]
             .as_ref(),
         )
-        .split(size);
+        .split(window);
 
-    let block = Block::default().style(
-        Style::default()
-            .bg(to_color(app.palette.base()))
-            .fg(to_color(app.palette.text())),
-    );
-    f.render_widget(block, size);
+    let inner_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(
+            [
+                Constraint::Percentage(20),
+                Constraint::Min(0),
+                Constraint::Percentage(20),
+            ]
+            .as_ref(),
+        )
+        .split(outer_layout[1]);
 
-    f.render_widget(header(app), chunks[0]);
+    let left_pane = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+        .split(inner_layout[0]);
 
-    match app.index {
-        0 => outpost(f, app, chunks[1]),
-        1 => crew(f, app, chunks[1]),
-        2 => region(f, app, chunks[1]),
-        _ => unreachable!(),
-    }
+    let right_pane = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+        .split(inner_layout[2]);
 
-    f.render_widget(tabs(app), chunks[2]);
+    header(f, app, outer_layout[0]);
+    footer(f, app, outer_layout[2]);
+
+    outpost(f, app, left_pane[0]);
+    crew(f, app, right_pane[0]);
+
+    region(f, app, left_pane[1]);
+    research(f, app, right_pane[1]);
+
+    focus(f, app, inner_layout[1]);
 }

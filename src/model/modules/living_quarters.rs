@@ -5,7 +5,9 @@ use crate::model::resources::Resources;
 use crate::model::status_effect::StatusEffect;
 use core::cmp::max;
 use core::cmp::min;
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize)]
 pub struct LivingQuarters {
     energy_level: i32,
     name: String,
@@ -20,6 +22,7 @@ impl LivingQuarters {
     }
 }
 
+#[typetag::serde]
 impl Module for LivingQuarters {
     fn name(&self) -> &String {
         &self.name

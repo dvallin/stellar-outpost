@@ -2,6 +2,7 @@ use crate::model::resources::Resources;
 
 use super::{crew::CrewMember, status_effect::StatusEffect};
 
+#[typetag::serde(tag = "type")]
 pub trait Module {
     fn name(&self) -> &String;
 

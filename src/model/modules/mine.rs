@@ -5,7 +5,9 @@ use crate::model::resources::Resources;
 use crate::model::status_effect::StatusEffect;
 use core::cmp::max;
 use core::cmp::min;
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize)]
 pub struct Mine {
     energy_level: i32,
     name: String,
@@ -24,6 +26,7 @@ pub fn production_bonus(crew: &CrewMember) -> i32 {
     crew.stats.geology
 }
 
+#[typetag::serde]
 impl Module for Mine {
     fn name(&self) -> &String {
         &self.name

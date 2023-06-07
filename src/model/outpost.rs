@@ -4,7 +4,9 @@ use crate::model::modules::power_generator::PowerGenerator;
 use crate::model::modules::Module;
 use crate::model::resources::Resources;
 use core::cmp::min;
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize)]
 pub struct Outpost {
     pub resources: Resources,
     pub modules: Vec<Box<dyn Module>>,

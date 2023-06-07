@@ -1,6 +1,8 @@
 use super::{modules::Module, stats::Stats, status_effect::StatusEffect};
 
-#[derive(Clone, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CrewMember {
     pub stats: Stats,
     name: String,

@@ -6,7 +6,9 @@ use crate::model::stats::Stats;
 use crate::model::status_effect::StatusEffect;
 use core::cmp::max;
 use core::cmp::min;
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize)]
 pub struct HoloDeck {
     energy_level: i32,
     name: String,
@@ -27,6 +29,7 @@ impl HoloDeck {
     }
 }
 
+#[typetag::serde]
 impl Module for HoloDeck {
     fn name(&self) -> &String {
         &self.name

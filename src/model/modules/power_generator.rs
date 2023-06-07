@@ -3,8 +3,9 @@ use crate::model::modules::Module;
 use crate::model::modules::ModulePriority;
 use crate::model::resources::Resources;
 use crate::model::status_effect::StatusEffect;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize)]
 pub struct PowerGenerator {
     production: i32,
     name: String,
@@ -19,6 +20,7 @@ impl PowerGenerator {
     }
 }
 
+#[typetag::serde]
 impl Module for PowerGenerator {
     fn name(&self) -> &String {
         &self.name

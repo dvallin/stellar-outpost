@@ -5,7 +5,9 @@ use crate::model::resources::Resources;
 use crate::model::status_effect::StatusEffect;
 use core::cmp::max;
 use core::cmp::min;
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize)]
 pub struct Farm {
     energy_level: i32,
     name: String,
@@ -24,6 +26,7 @@ pub fn production_bonus(crew: &CrewMember) -> i32 {
     ((crew.stats.biology as f32) / 4.0).ceil() as i32
 }
 
+#[typetag::serde]
 impl Module for Farm {
     fn name(&self) -> &String {
         &self.name
@@ -56,7 +59,7 @@ impl Module for Farm {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::stats::Stats;
+    use crate::model::{crew::CrewMember, stats::Stats};
 
     use super::production_bonus;
 
