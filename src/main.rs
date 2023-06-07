@@ -11,7 +11,7 @@ use tui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
-    widgets::{Block, Borders, Paragraph, Tabs, Wrap},
+    widgets::{Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, Wrap},
     Frame, Terminal,
 };
 
@@ -27,10 +27,10 @@ struct App {
 #[derive(Clone)]
 enum State {
     GameMenu,
-    Outpost(usize),
-    Crew(usize),
-    Research(usize),
-    Region(usize, usize),
+    Outpost(i32),
+    Crew(i32),
+    Research,
+    Region,
 }
 
 impl State {
@@ -39,21 +39,29 @@ impl State {
         use StateTransition::*;
         match *self {
             GameMenu => vec![PopState(KeyCode::Esc), QuitAndSave(KeyCode::Char('q'))],
-            Outpost(_) => vec![
+            Outpost(i) => vec![
                 PushState(KeyCode::Esc, GameMenu),
                 ReplaceState(KeyCode::Tab, Crew(0)),
+                ReplaceState(KeyCode::BackTab, Region),
+                ReplaceState(KeyCode::Char('j'), Outpost(i + 1)),
+                ReplaceState(KeyCode::Char('k'), Outpost(i - 1)),
             ],
-            Crew(_) => vec![
+            Crew(i) => vec![
                 PushState(KeyCode::Esc, GameMenu),
-                ReplaceState(KeyCode::Tab, Research(0)),
+                ReplaceState(KeyCode::Tab, Research),
+                ReplaceState(KeyCode::BackTab, Outpost(0)),
+                ReplaceState(KeyCode::Char('j'), Crew(i + 1)),
+                ReplaceState(KeyCode::Char('k'), Crew(i - 1)),
             ],
-            Research(_) => vec![
+            Research => vec![
                 PushState(KeyCode::Esc, GameMenu),
-                ReplaceState(KeyCode::Tab, Region(0, 0)),
+                ReplaceState(KeyCode::Tab, Region),
+                ReplaceState(KeyCode::BackTab, Crew(0)),
             ],
-            Region(_, _) => vec![
+            Region => vec![
                 PushState(KeyCode::Esc, GameMenu),
                 ReplaceState(KeyCode::Tab, Outpost(0)),
+                ReplaceState(KeyCode::BackTab, Research),
             ],
         }
     }
@@ -66,8 +74,8 @@ impl std::string::ToString for State {
             GameMenu => String::from("Game Menu"),
             Outpost(_) => String::from("Outpost"),
             Crew(_) => String::from("Crew"),
-            Region(_, _) => String::from("Region"),
-            Research(_) => String::from("Research"),
+            Region => String::from("Region"),
+            Research => String::from("Research"),
         }
     }
 }
@@ -78,27 +86,6 @@ enum StateTransition {
     PopState(KeyCode),
     ReplaceState(KeyCode, State),
     QuitAndSave(KeyCode),
-}
-
-fn print_keycode(code: &KeyCode) -> String {
-    match code {
-        KeyCode::Char(c) => c.to_string(),
-        KeyCode::Esc => String::from("ESC"),
-        KeyCode::Tab => String::from("Tab"),
-        _ => String::from("??"),
-    }
-}
-impl std::string::ToString for StateTransition {
-    fn to_string(&self) -> String {
-        use StateTransition::*;
-        match self {
-            PushState(c, s) | ReplaceState(c, s) => {
-                format!("{}({})", s.to_string(), print_keycode(&c))
-            }
-            PopState(c) => format!("Back({})", print_keycode(&c)),
-            QuitAndSave(c) => format!("Quit&Save({})", print_keycode(&c)),
-        }
-    }
 }
 
 impl App {
@@ -208,6 +195,9 @@ fn print_i32(v: i32) -> String {
         v.to_string()
     }
 }
+fn circular_index<T>(index: i32, arr: &Vec<T>) -> usize {
+    (((index % arr.len() as i32) + arr.len() as i32) % arr.len() as i32) as usize
+}
 
 fn header<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
     let consumption = app.outpost.consumption();
@@ -267,27 +257,7 @@ fn header<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
     )
 }
 
-fn footer<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
-    let transitions = app.current_state().transitions();
-    let navigations: Vec<Span> = transitions
-        .iter()
-        .map(|t| {
-            Span::styled(
-                t.to_string(),
-                Style::default().fg(to_color(app.palette.text())),
-            )
-        })
-        .collect();
-
-    f.render_widget(
-        Paragraph::new(Spans::from(navigations))
-            .alignment(Alignment::Left)
-            .wrap(Wrap { trim: true }),
-        area,
-    )
-}
-
-fn border(app: &App, title: String, focused: bool) -> Block {
+fn border<'a>(app: &'a App, title: &'a str, focused: bool) -> Block<'a> {
     let fg: Colour = if focused {
         app.palette.lavender()
     } else {
@@ -300,98 +270,135 @@ fn border(app: &App, title: String, focused: bool) -> Block {
 }
 
 fn outpost<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
-    let modules = app
+    let modules: Vec<ListItem> = app
         .outpost
         .modules
         .iter()
         .map(|m| {
-            Spans::from(vec![Span::styled(
+            ListItem::new(Spans::from(vec![Span::styled(
                 m.name(),
                 Style::default().fg(to_color(app.palette.text())),
-            )])
+            )]))
         })
         .collect();
 
-    let mut index: usize = 0;
+    let mut state: ListState = ListState::default();
     let mut focused = false;
     match app.current_state() {
-        State::Outpost(i) => {
-            index = *i;
+        State::Outpost(s) => {
+            state.select(Some(circular_index(*s, &modules)));
             focused = true
         }
         _ => (),
     };
 
-    f.render_widget(
-        Tabs::new(modules)
-            .block(border(app, String::from("Outpost"), focused))
-            .select(index)
+    f.render_stateful_widget(
+        List::new(modules)
+            .block(border(app, &String::from("Outpost"), focused))
             .highlight_style(
                 Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(to_color(app.palette.overlay0())),
-            ),
+            )
+            .highlight_symbol("> "),
         area,
+        &mut state,
     )
 }
 fn crew<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
-    let modules = app
+    let crew: Vec<ListItem> = app
         .outpost
         .crew
         .iter()
         .map(|m| {
-            Spans::from(vec![Span::styled(
+            ListItem::new(Spans::from(vec![Span::styled(
                 m.name(),
                 Style::default().fg(to_color(app.palette.text())),
-            )])
+            )]))
         })
         .collect();
 
-    let mut index: usize = 0;
+    let mut state: ListState = ListState::default();
     let mut focused = false;
     match app.current_state() {
-        State::Crew(i) => {
-            index = *i;
+        State::Crew(s) => {
+            state.select(Some(circular_index(*s, &crew)));
             focused = true
         }
         _ => (),
     };
 
-    f.render_widget(
-        Tabs::new(modules)
-            .block(border(app, String::from("Crew"), focused))
-            .select(index)
+    f.render_stateful_widget(
+        List::new(crew)
+            .block(border(app, &String::from("Crew"), focused))
             .highlight_style(
                 Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(to_color(app.palette.overlay0())),
-            ),
+            )
+            .highlight_symbol("> "),
         area,
+        &mut state,
     )
 }
 fn region<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
     let mut focused = false;
     match app.current_state() {
-        State::Region(_, _) => focused = true,
+        State::Region => focused = true,
         _ => (),
     };
-    f.render_widget(border(app, String::from("Region"), focused), area)
+    f.render_widget(border(app, &String::from("Region"), focused), area)
 }
 fn research<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
     let mut focused = false;
     match app.current_state() {
-        State::Research(_) => focused = true,
+        State::Research => focused = true,
         _ => (),
     };
-    f.render_widget(border(app, String::from("Research"), focused), area)
+    f.render_widget(border(app, &String::from("Research"), focused), area)
 }
 fn focus<B: Backend>(f: &mut Frame<B>, app: &App, area: Rect) {
-    f.render_widget(
-        Block::default()
-            .title(app.current_state().to_string())
-            .borders(Borders::ALL),
-        area,
-    )
+    match app.current_state() {
+        State::Crew(i) => {
+            let index = circular_index(*i, &app.outpost.crew);
+            let crew = &app.outpost.crew[index];
+
+            f.render_widget(border(app, crew.name(), false), area)
+        }
+        State::Outpost(i) => {
+            let index = circular_index(*i, &app.outpost.modules);
+            let module = &app.outpost.modules[index];
+
+            f.render_widget(border(app, module.name(), false), area)
+        }
+        State::GameMenu => {
+            let header_data = vec!["Action", "Key"];
+            let data: Vec<Vec<&str>> = vec![
+                vec!["Toggle Game Menu", "Esc"],
+                vec!["Quit (in game menu)", "q"],
+                vec!["next pane", "Tab"],
+                vec!["previous pane", "Shift+Tab"],
+                vec!["up (e.g. in lists)", "k"],
+                vec!["down (e.g. in lists)", "j"],
+            ];
+
+            let header_cells = header_data.iter().map(|h| {
+                Cell::from(*h).style(Style::default().fg(to_color(app.palette.subtext0())))
+            });
+            let header = Row::new(header_cells).height(1).bottom_margin(1);
+            let rows = data
+                .iter()
+                .map(|row| Row::new(row.iter().map(|c| Cell::from(*c))));
+            f.render_widget(
+                Table::new(rows)
+                    .header(header)
+                    .block(border(app, &String::from("Game Menu"), false))
+                    .widths(&[Constraint::Percentage(70), Constraint::Percentage(30)]),
+                area,
+            )
+        }
+        _ => f.render_widget(border(app, &app.current_state().to_string(), false), area),
+    }
 }
 
 fn to_color(value: Colour) -> Color {
@@ -411,14 +418,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
     let outer_layout = Layout::default()
         .direction(Direction::Vertical)
         .margin(5)
-        .constraints(
-            [
-                Constraint::Length(1),
-                Constraint::Min(0),
-                Constraint::Length(3),
-            ]
-            .as_ref(),
-        )
+        .constraints([Constraint::Length(1), Constraint::Min(0)].as_ref())
         .split(window);
 
     let inner_layout = Layout::default()
@@ -444,7 +444,6 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
         .split(inner_layout[2]);
 
     header(f, app, outer_layout[0]);
-    footer(f, app, outer_layout[2]);
 
     outpost(f, app, left_pane[0]);
     crew(f, app, right_pane[0]);
@@ -453,4 +452,37 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
     research(f, app, right_pane[1]);
 
     focus(f, app, inner_layout[1]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::circular_index;
+
+    #[test]
+    fn calculate_circular_index() {
+        let assert_index = |expected: usize, index: i32, arr: &Vec<i32>| {
+            assert_eq!(
+                expected,
+                circular_index(index, arr),
+                "indexing {} should create circular index {}",
+                index,
+                expected
+            );
+        };
+        let arr = vec![1, 2, 3];
+        assert_index(0, 0, &arr);
+
+        // positive
+        assert_index(1, 1, &arr);
+        assert_index(2, 2, &arr);
+        assert_index(0, 3, &arr);
+        assert_index(1, 4, &arr);
+        assert_index(2, 5, &arr);
+        assert_index(0, 6, &arr);
+        // negative
+        assert_index(2, -1, &arr);
+        assert_index(1, -2, &arr);
+        assert_index(0, -3, &arr);
+        assert_index(2, -4, &arr);
+    }
 }

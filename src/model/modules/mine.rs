@@ -59,7 +59,7 @@ impl Module for Mine {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::stats::Stats;
+    use crate::model::{crew::CrewMember, stats::Stats};
 
     use super::production_bonus;
 
