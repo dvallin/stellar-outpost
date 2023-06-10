@@ -7,6 +7,8 @@ use core::cmp::max;
 use core::cmp::min;
 use serde::{Deserialize, Serialize};
 
+use super::ModuleEnergyLevelDescription;
+
 #[derive(Serialize, Deserialize)]
 pub struct LivingQuarters {
     energy_level: i32,
@@ -35,11 +37,41 @@ impl Module for LivingQuarters {
     fn set_energy_level(&mut self, level: i32) {
         self.energy_level = min(max(level, 0), 3)
     }
+    fn increment_energy_level(&mut self) {
+        self.set_energy_level(self.energy_level + 1)
+    }
+    fn decrement_energy_level(&mut self) {
+        self.set_energy_level(self.energy_level - 1)
+    }
+    fn energy_levels<'a>(
+        &self,
+        _crew: &Vec<&'a CrewMember>,
+    ) -> Vec<ModuleEnergyLevelDescription<'a>> {
+        let mut levels: Vec<ModuleEnergyLevelDescription> = vec![];
+        for e in 1..4 {
+            if e <= self.energy_level {
+                levels.push(ModuleEnergyLevelDescription {
+                    is_active: true,
+                    consumption: Resources::energy(1),
+                    production: Resources::living_space(2),
+                    assignment: None,
+                })
+            } else {
+                levels.push(ModuleEnergyLevelDescription {
+                    is_active: false,
+                    consumption: Resources::zero(),
+                    production: Resources::zero(),
+                    assignment: None,
+                })
+            }
+        }
+        levels
+    }
 
     fn consumption(&self) -> Resources {
         Resources::energy(self.energy_level)
     }
-    fn production(&self, _crew: Vec<&CrewMember>) -> Resources {
+    fn production(&self, _crew: &Vec<&CrewMember>) -> Resources {
         Resources::living_space(self.energy_level * 2)
     }
     fn status_effect(&self) -> Option<StatusEffect> {

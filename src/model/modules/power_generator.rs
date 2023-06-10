@@ -5,6 +5,8 @@ use crate::model::resources::Resources;
 use crate::model::status_effect::StatusEffect;
 use serde::{Deserialize, Serialize};
 
+use super::ModuleEnergyLevelDescription;
+
 #[derive(Serialize, Deserialize)]
 pub struct PowerGenerator {
     production: i32,
@@ -31,11 +33,19 @@ impl Module for PowerGenerator {
     }
 
     fn set_energy_level(&mut self, _level: i32) {}
+    fn increment_energy_level(&mut self) {}
+    fn decrement_energy_level(&mut self) {}
+    fn energy_levels<'a>(
+        &self,
+        _crew: &Vec<&'a CrewMember>,
+    ) -> Vec<ModuleEnergyLevelDescription<'a>> {
+        vec![]
+    }
 
     fn consumption(&self) -> Resources {
         Resources::zero()
     }
-    fn production(&self, _crew: Vec<&CrewMember>) -> Resources {
+    fn production(&self, _crew: &Vec<&CrewMember>) -> Resources {
         Resources::energy(self.production)
     }
     fn status_effect(&self) -> Option<StatusEffect> {

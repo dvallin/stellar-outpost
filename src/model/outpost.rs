@@ -6,11 +6,37 @@ use crate::model::resources::Resources;
 use core::cmp::min;
 use serde::{Deserialize, Serialize};
 
+use super::{
+    modules::{ModuleEnergyLevelDescription, ModulePriority},
+    stats::Stats,
+};
+
 #[derive(Serialize, Deserialize)]
 pub struct Outpost {
     pub resources: Resources,
     pub modules: Vec<Box<dyn Module>>,
     pub crew: Vec<CrewMember>,
+    pub logs: Vec<String>,
+}
+
+pub struct CrewDescription<'a> {
+    pub name: &'a String,
+    pub mood: i32,
+    pub stats: &'a Stats,
+    pub assignment: Option<CrewAssignmentDescription<'a>>,
+}
+
+pub struct CrewAssignmentDescription<'a> {
+    pub module_name: &'a String,
+    pub production: Resources,
+}
+
+pub struct ModuleDescription<'a> {
+    pub name: &'a String,
+    pub priority: ModulePriority,
+    pub production: Resources,
+    pub consumption: Resources,
+    pub energy_levels: Vec<ModuleEnergyLevelDescription<'a>>,
 }
 
 impl Outpost {
@@ -18,6 +44,7 @@ impl Outpost {
         let mut s = Self {
             crew: vec![],
             modules: vec![],
+            logs: vec![],
 
             resources: Resources {
                 energy: 0,
@@ -40,17 +67,29 @@ impl Outpost {
         s.add_crew_member(CrewMember::new("c"));
         s.add_crew_member(CrewMember::new("d"));
 
+        s.logs.push(String::from("Outpost built"));
+        s.logs.push(String::from("Crew hired"));
+
         s
     }
 
     pub fn add_crew_member(&mut self, crew_member: CrewMember) {
         self.crew.push(crew_member)
     }
-    pub fn mut_crew_member(&mut self, crew_name: &String) -> Option<&mut CrewMember> {
-        self.crew.iter_mut().find(|m| crew_name.eq(m.name()))
-    }
-    pub fn crew_member(&self, crew_name: &String) -> Option<&CrewMember> {
-        self.crew.iter().find(|m| crew_name.eq(m.name()))
+    pub fn describe_crew_member<'a>(&'a self, crew: &'a CrewMember) -> CrewDescription<'a> {
+        CrewDescription {
+            name: crew.name(),
+            mood: crew.mood(),
+            stats: crew.stats(),
+            assignment: crew
+                .assigned_module()
+                .as_ref()
+                .and_then(|a| self.module(&a))
+                .map(|m: &Box<dyn Module>| CrewAssignmentDescription {
+                    module_name: m.name(),
+                    production: Resources::zero(),
+                }),
+        }
     }
 
     pub fn add_module(&mut self, module: Box<dyn Module>) {
@@ -72,6 +111,16 @@ impl Outpost {
     pub fn module(&self, module_name: &String) -> Option<&Box<dyn Module>> {
         self.modules.iter().find(|m| module_name.eq(m.name()))
     }
+    pub fn describe_module<'a>(&'a self, module: &'a Box<dyn Module>) -> ModuleDescription<'a> {
+        let crew = self.crew_of_module(module);
+        ModuleDescription {
+            name: module.name(),
+            priority: module.priority(),
+            production: module.production(&crew),
+            consumption: module.consumption(),
+            energy_levels: module.energy_levels(&crew),
+        }
+    }
 
     pub fn finish_turn(&mut self) {
         self.store_production();
@@ -84,9 +133,9 @@ impl Outpost {
         self.apply_status_effects();
     }
 
-    pub fn assign_crew_member_to_module(&mut self, crew_name: &String, module_name: &String) {
-        let crew = self.mut_crew_member(crew_name);
-        crew.map(|c| c.assign_to_module(module_name));
+    pub fn assign_crew_member_to_module(&mut self, crew_index: usize, module_index: usize) {
+        let crew = &mut self.crew[crew_index];
+        crew.assign_to_module(self.modules[module_index].name());
     }
 
     pub fn consumption(&self) -> Resources {
@@ -97,17 +146,17 @@ impl Outpost {
             .unwrap_or_else(Resources::zero)
     }
 
+    pub fn crew_of_module(&self, m: &Box<dyn Module>) -> Vec<&CrewMember> {
+        self.crew
+            .iter()
+            .filter(|c| c.is_assigned_to_module(m))
+            .collect()
+    }
+
     pub fn production(&self) -> Resources {
         self.modules
             .iter()
-            .map(|m| {
-                m.production(
-                    self.crew
-                        .iter()
-                        .filter(|c| c.is_assigned_to_module(m))
-                        .collect(),
-                )
-            })
+            .map(|m| m.production(&self.crew_of_module(m)))
             .reduce(|a, b| a + b)
             .unwrap_or_else(Resources::zero)
     }

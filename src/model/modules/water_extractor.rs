@@ -7,6 +7,9 @@ use core::cmp::max;
 use core::cmp::min;
 use serde::{Deserialize, Serialize};
 
+use super::ModuleAssignmentDescription;
+use super::ModuleEnergyLevelDescription;
+
 #[derive(Serialize, Deserialize)]
 pub struct WaterExtractor {
     energy_level: i32,
@@ -39,12 +42,47 @@ impl Module for WaterExtractor {
     fn set_energy_level(&mut self, level: i32) {
         self.energy_level = min(max(level, 0), 3)
     }
+    fn increment_energy_level(&mut self) {
+        self.set_energy_level(self.energy_level + 1)
+    }
+    fn decrement_energy_level(&mut self) {
+        self.set_energy_level(self.energy_level - 1)
+    }
+    fn energy_levels<'a>(
+        &self,
+        crew: &Vec<&'a CrewMember>,
+    ) -> Vec<ModuleEnergyLevelDescription<'a>> {
+        let mut levels: Vec<ModuleEnergyLevelDescription> = vec![];
+        for e in 1..4 {
+            if e <= self.energy_level {
+                let assignment = crew.get(e as usize).map(|c| ModuleAssignmentDescription {
+                    crew_name: c.name(),
+                    production_bonus: Resources::water(production_bonus(c)),
+                });
+
+                levels.push(ModuleEnergyLevelDescription {
+                    is_active: true,
+                    consumption: Resources::energy(1),
+                    production: Resources::water(1),
+                    assignment,
+                })
+            } else {
+                levels.push(ModuleEnergyLevelDescription {
+                    is_active: false,
+                    consumption: Resources::zero(),
+                    production: Resources::zero(),
+                    assignment: None,
+                })
+            }
+        }
+        levels
+    }
 
     fn consumption(&self) -> Resources {
         Resources::energy(self.energy_level)
     }
 
-    fn production(&self, crew: Vec<&CrewMember>) -> Resources {
+    fn production(&self, crew: &Vec<&CrewMember>) -> Resources {
         let mut crew_bonus = 0;
         for member in crew.iter().take(self.energy_level as usize) {
             crew_bonus += production_bonus(member)
