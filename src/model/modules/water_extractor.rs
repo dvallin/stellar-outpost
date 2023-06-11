@@ -26,7 +26,7 @@ impl WaterExtractor {
 }
 
 pub fn production_bonus(crew: &CrewMember) -> i32 {
-    ((crew.stats.chemistry as f32) / 3.0).ceil() as i32
+    ((1.0 + crew.stats.chemistry as f32) / 3.0).ceil() as i32
 }
 
 #[typetag::serde]
@@ -116,16 +116,16 @@ mod tests {
                 expected
             );
         };
-        assert_bonus(0, 0);
+        assert_bonus(1, 0);
         assert_bonus(1, 1);
         assert_bonus(1, 2);
-        assert_bonus(1, 3);
+        assert_bonus(2, 3);
         assert_bonus(2, 4);
         assert_bonus(2, 5);
-        assert_bonus(2, 6);
+        assert_bonus(3, 6);
         assert_bonus(3, 7);
         assert_bonus(3, 8);
-        assert_bonus(3, 9);
+        assert_bonus(4, 9);
         assert_bonus(4, 10);
     }
 }

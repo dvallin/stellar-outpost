@@ -26,7 +26,7 @@ impl Mine {
 }
 
 pub fn production_bonus(crew: &CrewMember) -> i32 {
-    crew.stats.geology
+    ((1.0 + crew.stats.geology as f32) / 2.0).ceil() as i32
 }
 
 #[typetag::serde]
@@ -115,16 +115,16 @@ mod tests {
                 expected
             );
         };
-        assert_bonus(0, 0);
+        assert_bonus(1, 0);
         assert_bonus(1, 1);
         assert_bonus(2, 2);
-        assert_bonus(3, 3);
-        assert_bonus(4, 4);
-        assert_bonus(5, 5);
-        assert_bonus(6, 6);
-        assert_bonus(7, 7);
-        assert_bonus(8, 8);
-        assert_bonus(9, 9);
-        assert_bonus(10, 10);
+        assert_bonus(2, 3);
+        assert_bonus(3, 4);
+        assert_bonus(3, 5);
+        assert_bonus(4, 6);
+        assert_bonus(4, 7);
+        assert_bonus(5, 8);
+        assert_bonus(5, 9);
+        assert_bonus(6, 10);
     }
 }

@@ -10,7 +10,7 @@ use tui::{
     Frame,
 };
 
-use crate::model::outpost::Outpost;
+use crate::model::{modules::Module, outpost::Outpost};
 
 pub struct App {
     pub outpost: Outpost,
@@ -23,10 +23,10 @@ pub struct App {
 pub enum State {
     GameMenu,
     // module states
-    Outpost(i32),
+    Outpost(usize),
     // crew states
-    Crew(i32),
-    AssignToModule(i32, i32),
+    Crew(usize),
+    AssignToModule(usize, usize),
     // research states
     Research,
     // region states
@@ -34,7 +34,7 @@ pub enum State {
 }
 
 impl State {
-    fn transitions(&self) -> Vec<StateTransition> {
+    fn transitions(&self, app: &App) -> Vec<StateTransition> {
         use DomainEvent::*;
         use State::*;
         use StateTransition::*;
@@ -44,8 +44,14 @@ impl State {
                 PushState(KeyCode::Esc, GameMenu),
                 ReplaceState(KeyCode::Tab, Crew(0)),
                 ReplaceState(KeyCode::BackTab, Region),
-                ReplaceState(KeyCode::Char('j'), Outpost(i + 1)),
-                ReplaceState(KeyCode::Char('k'), Outpost(i - 1)),
+                ReplaceState(
+                    KeyCode::Char('j'),
+                    Outpost(circular_index((i as i32) + 1, &app.outpost.modules)),
+                ),
+                ReplaceState(
+                    KeyCode::Char('k'),
+                    Outpost(circular_index((i as i32) - 1, &app.outpost.modules)),
+                ),
                 ApplyDomainEvent(KeyCode::Char('+'), IncrementModuleEnergyLevel, false),
                 ApplyDomainEvent(KeyCode::Char('-'), DecrementModuleEnergyLevel, false),
             ],
@@ -53,8 +59,14 @@ impl State {
                 PushState(KeyCode::Esc, GameMenu),
                 ReplaceState(KeyCode::Tab, Research),
                 ReplaceState(KeyCode::BackTab, Outpost(0)),
-                ReplaceState(KeyCode::Char('j'), Crew(i + 1)),
-                ReplaceState(KeyCode::Char('k'), Crew(i - 1)),
+                ReplaceState(
+                    KeyCode::Char('j'),
+                    Crew(circular_index((i as i32) + 1, &app.outpost.crew)),
+                ),
+                ReplaceState(
+                    KeyCode::Char('k'),
+                    Crew(circular_index((i as i32) - 1, &app.outpost.crew)),
+                ),
                 PushState(KeyCode::Char('a'), AssignToModule(i, 0)),
             ],
             Research => vec![
@@ -69,8 +81,14 @@ impl State {
             ],
             AssignToModule(c, m) => vec![
                 PopState(KeyCode::Esc),
-                ReplaceState(KeyCode::Char('j'), AssignToModule(c, m + 1)),
-                ReplaceState(KeyCode::Char('k'), AssignToModule(c, m - 1)),
+                ReplaceState(
+                    KeyCode::Char('j'),
+                    AssignToModule(c, circular_index((m as i32) + 1, &app.outpost.modules)),
+                ),
+                ReplaceState(
+                    KeyCode::Char('k'),
+                    AssignToModule(c, circular_index((m as i32) - 1, &app.outpost.modules)),
+                ),
                 ApplyDomainEvent(KeyCode::Enter, AssignCrewMemberToModule, true),
             ],
         }
@@ -127,11 +145,13 @@ impl App {
         use DomainEvent::*;
         use State::*;
         use StateTransition::*;
-        let transitions = self.current_state().transitions();
+        let transitions = self.current_state().transitions(self);
         let transition = transitions.iter().find(|t| match t {
-            PopState(c) | QuitAndSave(c) => c.eq(&code),
-            PushState(c, _) | ReplaceState(c, _) => c.eq(&code),
-            ApplyDomainEvent(c, _, _) => c.eq(&code),
+            PopState(c)
+            | QuitAndSave(c)
+            | PushState(c, _)
+            | ReplaceState(c, _)
+            | ApplyDomainEvent(c, _, _) => c.eq(&code),
         });
         return match transition {
             Some(transition) => match transition {
@@ -161,28 +181,15 @@ impl App {
                 }
                 ApplyDomainEvent(_, e, and_pop) => {
                     match e {
-                        IncrementModuleEnergyLevel => match self.current_state() {
-                            Outpost(i) => {
-                                let index = circular_index(*i, &self.outpost.modules);
-                                let module = &mut self.outpost.modules[index];
-                                module.increment_energy_level();
-                            }
-                            _ => (),
-                        },
-                        DecrementModuleEnergyLevel => match self.current_state() {
-                            Outpost(i) => {
-                                let index = circular_index(*i, &self.outpost.modules);
-                                let module = &mut self.outpost.modules[index];
-                                module.decrement_energy_level();
-                            }
-                            _ => (),
-                        },
+                        IncrementModuleEnergyLevel => {
+                            self.current_module().map(|m| m.increment_energy_level());
+                        }
+                        DecrementModuleEnergyLevel => {
+                            self.current_module().map(|m| m.decrement_energy_level());
+                        }
                         AssignCrewMemberToModule => match self.current_state() {
                             AssignToModule(c, m) => {
-                                let crew_index = circular_index(*c, &self.outpost.crew);
-                                let module_index = circular_index(*m, &self.outpost.modules);
-                                self.outpost
-                                    .assign_crew_member_to_module(crew_index, module_index)
+                                self.outpost.assign_crew_member_to_module(*c, *m)
                             }
                             _ => (),
                         },
@@ -263,6 +270,13 @@ impl App {
         self.state.last().unwrap()
     }
 
+    fn current_module(&mut self) -> Option<&mut Box<dyn Module>> {
+        match self.state.last().unwrap() {
+            State::Outpost(i) => Some(&mut self.outpost.modules[*i]),
+            _ => None,
+        }
+    }
+
     fn header<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
         let consumption = self.outpost.consumption();
         let production = self.outpost.production();
@@ -338,7 +352,7 @@ impl App {
         let mut focused = false;
         match self.current_state() {
             State::Outpost(s) => {
-                state.select(Some(circular_index(*s, &self.outpost.modules)));
+                state.select(Some(*s));
                 focused = true
             }
             _ => (),
@@ -351,7 +365,7 @@ impl App {
         let mut focused = false;
         match self.current_state() {
             State::AssignToModule(_, m) => {
-                state.select(Some(circular_index(*m, &self.outpost.modules)));
+                state.select(Some(*m));
                 focused = true
             }
             _ => (),
@@ -410,7 +424,7 @@ impl App {
         let mut focused = false;
         match self.current_state() {
             State::Crew(s) | State::AssignToModule(s, _) => {
-                state.select(Some(circular_index(*s, &crew)));
+                state.select(Some(*s));
                 focused = true
             }
             _ => (),
@@ -458,8 +472,7 @@ impl App {
     fn focus<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
         match self.current_state() {
             State::Crew(i) => {
-                let index = circular_index(*i, &self.outpost.crew);
-                let crew = &self.outpost.crew[index];
+                let crew = &self.outpost.crew[*i];
                 let description = self.outpost.describe_crew_member(&crew);
 
                 let mood = print_percentage(description.mood);
@@ -490,8 +503,7 @@ impl App {
                 )
             }
             State::Outpost(i) => {
-                let index = circular_index(*i, &self.outpost.modules);
-                let module = &self.outpost.modules[index];
+                let module = &self.outpost.modules[*i];
 
                 f.render_widget(self.border(module.name(), false), area);
 
@@ -628,7 +640,7 @@ impl App {
                     area,
                 )
             }
-            State::AssignToModule(c, m) => self.modules_list_assign_to_module(f, area),
+            State::AssignToModule(_, _) => self.modules_list_assign_to_module(f, area),
             State::Research => {
                 f.render_widget(self.border(&self.current_state().to_string(), false), area)
             }
