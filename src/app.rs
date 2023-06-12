@@ -36,60 +36,61 @@ pub enum State {
 impl State {
     fn transitions(&self, app: &App) -> Vec<StateTransition> {
         use DomainEvent::*;
+        use KeyCode::*;
         use State::*;
         use StateTransition::*;
         match *self {
-            GameMenu => vec![PopState(KeyCode::Esc), QuitAndSave(KeyCode::Char('q'))],
+            GameMenu => vec![PopState(Esc), QuitAndSave(Char('q'))],
             Outpost(i) => vec![
-                PushState(KeyCode::Esc, GameMenu),
-                ReplaceState(KeyCode::Tab, Crew(0)),
-                ReplaceState(KeyCode::BackTab, Region),
+                PushState(Esc, GameMenu),
+                ReplaceState(Tab, Crew(0)),
+                ReplaceState(BackTab, Region),
                 ReplaceState(
-                    KeyCode::Char('j'),
+                    Char('j'),
                     Outpost(circular_index((i as i32) + 1, &app.outpost.modules)),
                 ),
                 ReplaceState(
-                    KeyCode::Char('k'),
+                    Char('k'),
                     Outpost(circular_index((i as i32) - 1, &app.outpost.modules)),
                 ),
-                ApplyDomainEvent(KeyCode::Char('+'), IncrementModuleEnergyLevel, false),
-                ApplyDomainEvent(KeyCode::Char('-'), DecrementModuleEnergyLevel, false),
+                ApplyDomainEvent(Char('+'), IncrementModuleEnergyLevel, false),
+                ApplyDomainEvent(Char('-'), DecrementModuleEnergyLevel, false),
             ],
             Crew(i) => vec![
-                PushState(KeyCode::Esc, GameMenu),
-                ReplaceState(KeyCode::Tab, Research),
-                ReplaceState(KeyCode::BackTab, Outpost(0)),
+                PushState(Esc, GameMenu),
+                ReplaceState(Tab, Research),
+                ReplaceState(BackTab, Outpost(0)),
                 ReplaceState(
-                    KeyCode::Char('j'),
+                    Char('j'),
                     Crew(circular_index((i as i32) + 1, &app.outpost.crew)),
                 ),
                 ReplaceState(
-                    KeyCode::Char('k'),
+                    Char('k'),
                     Crew(circular_index((i as i32) - 1, &app.outpost.crew)),
                 ),
-                PushState(KeyCode::Char('a'), AssignToModule(i, 0)),
+                PushState(Char('a'), AssignToModule(i, 0)),
             ],
             Research => vec![
-                PushState(KeyCode::Esc, GameMenu),
-                ReplaceState(KeyCode::Tab, Region),
-                ReplaceState(KeyCode::BackTab, Crew(0)),
+                PushState(Esc, GameMenu),
+                ReplaceState(Tab, Region),
+                ReplaceState(BackTab, Crew(0)),
             ],
             Region => vec![
-                PushState(KeyCode::Esc, GameMenu),
-                ReplaceState(KeyCode::Tab, Outpost(0)),
-                ReplaceState(KeyCode::BackTab, Research),
+                PushState(Esc, GameMenu),
+                ReplaceState(Tab, Outpost(0)),
+                ReplaceState(BackTab, Research),
             ],
             AssignToModule(c, m) => vec![
-                PopState(KeyCode::Esc),
+                PopState(Esc),
                 ReplaceState(
-                    KeyCode::Char('j'),
+                    Char('j'),
                     AssignToModule(c, circular_index((m as i32) + 1, &app.outpost.modules)),
                 ),
                 ReplaceState(
-                    KeyCode::Char('k'),
+                    Char('k'),
                     AssignToModule(c, circular_index((m as i32) - 1, &app.outpost.modules)),
                 ),
-                ApplyDomainEvent(KeyCode::Enter, AssignCrewMemberToModule, true),
+                ApplyDomainEvent(Enter, AssignCrewMemberToModule, true),
             ],
         }
     }
@@ -153,7 +154,7 @@ impl App {
             | ReplaceState(c, _)
             | ApplyDomainEvent(c, _, _) => c.eq(&code),
         });
-        return match transition {
+        match transition {
             Some(transition) => match transition {
                 PopState(_) => {
                     self.state.pop();
@@ -207,10 +208,13 @@ impl App {
                 }
             },
             None => None,
-        };
+        }
     }
 
     pub fn render<B: Backend>(&self, f: &mut Frame<B>) {
+        use Constraint::*;
+        use Direction::*;
+
         let window = f.size();
         let block = Block::default().style(
             Style::default()
@@ -220,38 +224,24 @@ impl App {
         f.render_widget(block, window);
 
         let outer_layout = Layout::default()
-            .direction(Direction::Vertical)
+            .direction(Vertical)
             .margin(5)
-            .constraints([Constraint::Length(1), Constraint::Min(0)].as_ref())
+            .constraints([Length(1), Min(0)].as_ref())
             .split(window);
 
         let inner_layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(
-                [
-                    Constraint::Percentage(20),
-                    Constraint::Min(0),
-                    Constraint::Percentage(20),
-                ]
-                .as_ref(),
-            )
+            .direction(Horizontal)
+            .constraints([Percentage(20), Min(0), Percentage(20)].as_ref())
             .split(outer_layout[1]);
 
         let left_pane = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+            .direction(Vertical)
+            .constraints([Percentage(50), Percentage(50)].as_ref())
             .split(inner_layout[0]);
 
         let right_pane = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(
-                [
-                    Constraint::Percentage(60),
-                    Constraint::Percentage(20),
-                    Constraint::Percentage(20),
-                ]
-                .as_ref(),
-            )
+            .direction(Vertical)
+            .constraints([Percentage(60), Percentage(20), Percentage(20)].as_ref())
             .split(inner_layout[2]);
 
         self.header(f, outer_layout[0]);
@@ -278,14 +268,14 @@ impl App {
     }
 
     fn header<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
-        let consumption = self.outpost.consumption();
+        let consumption = self.outpost.consumption() + self.outpost.crew_upkeep();
         let production = self.outpost.production();
         let text = vec![Spans::from(vec![
             Span::styled(
                 format!(
                     "{}/{}",
                     consumption.energy.to_string(),
-                    self.outpost.resources.energy.to_string(),
+                    production.energy.to_string(),
                 ),
                 Style::default().fg(to_color(self.palette.yellow())),
             ),
@@ -294,7 +284,7 @@ impl App {
                 format!(
                     "{}/{}",
                     consumption.living_space.to_string(),
-                    self.outpost.resources.living_space.to_string(),
+                    production.living_space.to_string(),
                 ),
                 Style::default().fg(to_color(self.palette.peach())),
             ),
@@ -470,8 +460,9 @@ impl App {
     }
 
     fn focus<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
+        use State::*;
         match self.current_state() {
-            State::Crew(i) => {
+            Crew(i) => {
                 let crew = &self.outpost.crew[*i];
                 let description = self.outpost.describe_crew_member(&crew);
 
@@ -502,7 +493,7 @@ impl App {
                     area,
                 )
             }
-            State::Outpost(i) => {
+            Outpost(i) => {
                 let module = &self.outpost.modules[*i];
 
                 f.render_widget(self.border(module.name(), false), area);
@@ -611,7 +602,7 @@ impl App {
                     chunks[1],
                 )
             }
-            State::GameMenu => {
+            GameMenu => {
                 let header_data = vec!["Action", "Key"];
                 let data: Vec<Vec<&str>> = vec![
                     vec!["go back (or to game menu)", "Esc"],
@@ -640,13 +631,11 @@ impl App {
                     area,
                 )
             }
-            State::AssignToModule(_, _) => self.modules_list_assign_to_module(f, area),
-            State::Research => {
+            AssignToModule(_, _) => self.modules_list_assign_to_module(f, area),
+            Research => {
                 f.render_widget(self.border(&self.current_state().to_string(), false), area)
             }
-            State::Region => {
-                f.render_widget(self.border(&self.current_state().to_string(), false), area)
-            }
+            Region => f.render_widget(self.border(&self.current_state().to_string(), false), area),
         }
     }
 }

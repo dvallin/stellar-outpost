@@ -1,4 +1,4 @@
-use super::{modules::Module, stats::Stats, status_effect::StatusEffect};
+use super::{modules::Module, resources::Resources, stats::Stats};
 
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +43,10 @@ impl CrewMember {
         }
         m.clamp(0, 100)
     }
+    pub fn apply_mood(&self, stat_bonus: f32) -> i32 {
+        let mood_modifier = (self.mood() - 50) as f32 / 25.0;
+        (stat_bonus * (1.0 + mood_modifier)).ceil() as i32
+    }
 
     pub fn finish_turn(&mut self) {
         self.is_hungry = true;
@@ -69,11 +73,5 @@ impl CrewMember {
             .as_ref()
             .map(|a| a.eq(module.name()))
             .unwrap_or(false)
-    }
-
-    pub fn apply_status_effect(&mut self, e: &StatusEffect) {
-        match e {
-            StatusEffect::GainStat(s) => self.stats += s.clone(),
-        }
     }
 }

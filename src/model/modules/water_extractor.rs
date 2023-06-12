@@ -2,7 +2,6 @@ use crate::model::crew::CrewMember;
 use crate::model::modules::Module;
 use crate::model::modules::ModulePriority;
 use crate::model::resources::Resources;
-use crate::model::status_effect::StatusEffect;
 use core::cmp::max;
 use core::cmp::min;
 use serde::{Deserialize, Serialize};
@@ -26,7 +25,7 @@ impl WaterExtractor {
 }
 
 pub fn production_bonus(crew: &CrewMember) -> i32 {
-    ((1.0 + crew.stats.chemistry as f32) / 3.0).ceil() as i32
+    crew.apply_mood((2.0 + (crew.stats.chemistry as f32) / 10.0) / 3.0)
 }
 
 #[typetag::serde]
@@ -87,10 +86,7 @@ impl Module for WaterExtractor {
         for member in crew.iter().take(self.energy_level as usize) {
             crew_bonus += production_bonus(member)
         }
-        Resources::water(self.energy_level + crew_bonus)
-    }
-    fn status_effect(&self) -> Option<StatusEffect> {
-        None
+        Resources::water(std::cmp::max(self.energy_level + crew_bonus, 0))
     }
 
     fn finish_turn(&self) {}
@@ -117,15 +113,15 @@ mod tests {
             );
         };
         assert_bonus(1, 0);
-        assert_bonus(1, 1);
-        assert_bonus(1, 2);
-        assert_bonus(2, 3);
-        assert_bonus(2, 4);
-        assert_bonus(2, 5);
-        assert_bonus(3, 6);
-        assert_bonus(3, 7);
-        assert_bonus(3, 8);
-        assert_bonus(4, 9);
-        assert_bonus(4, 10);
+        assert_bonus(1, 10);
+        assert_bonus(2, 20);
+        assert_bonus(2, 30);
+        assert_bonus(2, 40);
+        assert_bonus(3, 50);
+        assert_bonus(3, 60);
+        assert_bonus(3, 70);
+        assert_bonus(4, 80);
+        assert_bonus(4, 90);
+        assert_bonus(4, 100);
     }
 }

@@ -7,7 +7,9 @@ use core::cmp::min;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    modules::{ModuleEnergyLevelDescription, ModulePriority},
+    modules::{
+        farm::Farm, water_extractor::WaterExtractor, ModuleEnergyLevelDescription, ModulePriority,
+    },
     stats::Stats,
 };
 
@@ -62,10 +64,21 @@ impl Outpost {
         quarters.set_energy_level(2);
         s.add_module(quarters);
 
+        let mut water = Box::new(WaterExtractor::new("water"));
+        water.set_energy_level(1);
+        s.add_module(water);
+
+        let mut farm = Box::new(Farm::new("farm"));
+        farm.set_energy_level(1);
+        s.add_module(farm);
+
         s.add_crew_member(CrewMember::new("a"));
         s.add_crew_member(CrewMember::new("b"));
         s.add_crew_member(CrewMember::new("c"));
         s.add_crew_member(CrewMember::new("d"));
+
+        s.assign_crew_member_to_module(0, 2);
+        s.assign_crew_member_to_module(1, 3);
 
         s.logs.push(String::from("Outpost built"));
         s.logs.push(String::from("Crew hired"));
@@ -105,9 +118,6 @@ impl Outpost {
             }
         });
     }
-    pub fn mut_module(&mut self, module_name: &String) -> Option<&mut Box<dyn Module>> {
-        self.modules.iter_mut().find(|m| module_name.eq(m.name()))
-    }
     pub fn module(&self, module_name: &String) -> Option<&Box<dyn Module>> {
         self.modules.iter().find(|m| module_name.eq(m.name()))
     }
@@ -130,7 +140,6 @@ impl Outpost {
         }
         self.support_crew();
         self.support_modules();
-        self.apply_status_effects();
     }
 
     pub fn assign_crew_member_to_module(&mut self, crew_index: usize, module_index: usize) {
@@ -163,6 +172,17 @@ impl Outpost {
 
     fn store_production(&mut self) {
         self.resources += self.production();
+    }
+
+    pub fn crew_upkeep(&self) -> Resources {
+        let len = self.crew.len() as i32;
+        Resources {
+            energy: 0,
+            living_space: len,
+            minerals: 0,
+            food: len,
+            water: len,
+        }
     }
 
     fn support_crew(&mut self) {
@@ -205,18 +225,6 @@ impl Outpost {
             if missing_energy <= 0 {
                 break;
             }
-        }
-    }
-
-    fn apply_status_effects(&mut self) {
-        for m in self.modules.iter() {
-            m.status_effect().map(|e| {
-                for c in self.crew.iter_mut() {
-                    if c.is_assigned_to_module(m) {
-                        c.apply_status_effect(&e)
-                    }
-                }
-            });
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::model::resources::Resources;
 
-use super::{crew::CrewMember, status_effect::StatusEffect};
+use super::crew::CrewMember;
 
 pub struct ModuleEnergyLevelDescription<'a> {
     pub is_active: bool,
@@ -29,7 +29,6 @@ pub trait Module {
 
     fn consumption(&self) -> Resources;
     fn production(&self, crew: &Vec<&CrewMember>) -> Resources;
-    fn status_effect(&self) -> Option<StatusEffect>;
 
     fn finish_turn(&self);
 }
@@ -42,7 +41,6 @@ pub enum ModulePriority {
 }
 
 pub mod farm;
-pub mod holo_deck;
 pub mod living_quarters;
 pub mod mine;
 pub mod power_generator;

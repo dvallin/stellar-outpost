@@ -2,7 +2,6 @@ use crate::model::crew::CrewMember;
 use crate::model::modules::Module;
 use crate::model::modules::ModulePriority;
 use crate::model::resources::Resources;
-use crate::model::status_effect::StatusEffect;
 use serde::{Deserialize, Serialize};
 
 use super::ModuleEnergyLevelDescription;
@@ -47,9 +46,6 @@ impl Module for PowerGenerator {
     }
     fn production(&self, _crew: &Vec<&CrewMember>) -> Resources {
         Resources::energy(self.production)
-    }
-    fn status_effect(&self) -> Option<StatusEffect> {
-        None
     }
 
     fn finish_turn(&self) {}

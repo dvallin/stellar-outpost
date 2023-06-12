@@ -2,7 +2,6 @@ use crate::model::crew::CrewMember;
 use crate::model::modules::Module;
 use crate::model::modules::ModulePriority;
 use crate::model::resources::Resources;
-use crate::model::status_effect::StatusEffect;
 use core::cmp::max;
 use core::cmp::min;
 use serde::{Deserialize, Serialize};
@@ -26,7 +25,7 @@ impl Farm {
 }
 
 pub fn production_bonus(crew: &CrewMember) -> i32 {
-    ((1.0 + crew.stats.biology as f32) / 4.0).ceil() as i32
+    crew.apply_mood((1.0 + (crew.stats.biology as f32 / 10.0)) / 4.0)
 }
 
 #[typetag::serde]
@@ -88,9 +87,6 @@ impl Module for Farm {
         }
         Resources::food(self.energy_level + crew_bonus)
     }
-    fn status_effect(&self) -> Option<StatusEffect> {
-        None
-    }
 
     fn finish_turn(&self) {}
 }
@@ -116,15 +112,15 @@ mod tests {
             );
         };
         assert_bonus(1, 0);
-        assert_bonus(1, 1);
-        assert_bonus(1, 2);
-        assert_bonus(1, 3);
-        assert_bonus(2, 4);
-        assert_bonus(2, 5);
-        assert_bonus(2, 6);
-        assert_bonus(2, 7);
-        assert_bonus(3, 8);
-        assert_bonus(3, 9);
-        assert_bonus(3, 10);
+        assert_bonus(1, 10);
+        assert_bonus(1, 20);
+        assert_bonus(1, 30);
+        assert_bonus(2, 40);
+        assert_bonus(2, 50);
+        assert_bonus(2, 60);
+        assert_bonus(2, 70);
+        assert_bonus(3, 80);
+        assert_bonus(3, 90);
+        assert_bonus(3, 100);
     }
 }

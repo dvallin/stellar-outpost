@@ -2,7 +2,6 @@ use crate::model::crew::CrewMember;
 use crate::model::modules::Module;
 use crate::model::modules::ModulePriority;
 use crate::model::resources::Resources;
-use crate::model::status_effect::StatusEffect;
 use core::cmp::max;
 use core::cmp::min;
 use serde::{Deserialize, Serialize};
@@ -73,9 +72,6 @@ impl Module for LivingQuarters {
     }
     fn production(&self, _crew: &Vec<&CrewMember>) -> Resources {
         Resources::living_space(self.energy_level * 2)
-    }
-    fn status_effect(&self) -> Option<StatusEffect> {
-        None
     }
 
     fn finish_turn(&self) {}
