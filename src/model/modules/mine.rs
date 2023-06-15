@@ -86,6 +86,10 @@ impl Module for Mine {
         Resources::energy(self.energy_level)
     }
     fn production(&self, crew: &Vec<&CrewMember>) -> Resources {
+        if crew.len() == 0 {
+            return Resources::zero();
+        }
+
         let mut crew_bonus = 0;
         for member in crew.iter().take(self.energy_level as usize) {
             crew_bonus += production_bonus(member)

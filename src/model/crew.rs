@@ -9,6 +9,7 @@ pub struct CrewMember {
     is_hungry: bool,
     is_thirsty: bool,
     is_tired: bool,
+    health: i32,
     assigned_module: Option<String>,
 }
 
@@ -19,6 +20,7 @@ impl CrewMember {
             is_hungry: false,
             is_thirsty: false,
             is_tired: false,
+            health: 5,
             assigned_module: None,
             stats: Stats::zero(),
         }
@@ -30,6 +32,9 @@ impl CrewMember {
     pub fn stats(&self) -> &Stats {
         &self.stats
     }
+    pub fn is_alive(&self) -> bool {
+        self.health > 0
+    }
     pub fn upkeep(&self) -> Resources {
         Resources {
             energy: 0,
@@ -40,24 +45,30 @@ impl CrewMember {
         }
     }
     pub fn mood(&self) -> i32 {
-        let mut m: i32 = 50;
+        let mut m: i32 = 70;
         if self.is_hungry {
             m -= 30
         }
         if self.is_thirsty {
-            m -= 30
+            m -= 70
         }
         if self.is_tired {
             m -= 30
         }
-        m.clamp(0, 100)
+        2 * m.clamp(0, 100) - 100
     }
     pub fn apply_mood(&self, stat_bonus: f32) -> i32 {
-        let mood_modifier = (self.mood() - 50) as f32 / 25.0;
+        let mood_modifier = self.mood() as f32 / 25.0;
         (stat_bonus * (1.0 + mood_modifier)).ceil() as i32
     }
 
     pub fn finish_turn(&mut self) {
+        if self.is_hungry {
+            self.health -= 1;
+        }
+        if self.is_thirsty {
+            self.health -= 1;
+        }
         self.is_hungry = true;
         self.is_thirsty = true;
         self.is_tired = true;

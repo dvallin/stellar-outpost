@@ -18,7 +18,9 @@ pub struct Outpost {
     pub resources: Resources,
     pub modules: Vec<Box<dyn Module>>,
     pub crew: Vec<CrewMember>,
+    pub cemetery: Vec<CrewMember>,
     pub logs: Vec<String>,
+    pub current_turn: u32,
 }
 
 pub struct CrewDescription<'a> {
@@ -62,8 +64,10 @@ impl Outpost {
     pub fn new() -> Self {
         let mut s = Self {
             crew: vec![],
+            cemetery: vec![],
             modules: vec![],
             logs: vec![],
+            current_turn: 0,
 
             resources: Resources {
                 energy: 0,
@@ -155,9 +159,16 @@ impl Outpost {
 
         for c in self.crew.iter_mut() {
             c.finish_turn();
+            if !c.is_alive() {
+                self.cemetery.push(c.clone());
+            }
         }
-        self.support_crew();
+        self.crew.retain(|c| c.is_alive());
+
         self.support_modules();
+        self.support_crew();
+
+        self.current_turn += 1;
     }
 
     pub fn assign_crew_member_to_module(&mut self, crew_index: usize, module_index: usize) {
@@ -242,6 +253,7 @@ impl Outpost {
         if missing_energy > 0 {
             self.cut_energy(missing_energy);
         }
+        self.resources -= self.consumption();
     }
 
     fn cut_energy(&mut self, mut missing_energy: i32) {

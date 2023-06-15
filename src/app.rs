@@ -57,6 +57,7 @@ impl State {
                 ApplyDomainEvent(Char('+'), IncrementModuleEnergyLevel, false),
                 ApplyDomainEvent(Char('-'), DecrementModuleEnergyLevel, false),
                 PushState(Char('a'), AssignCrew(0, i)),
+                ApplyDomainEvent(Enter, FinishTurn, false),
             ],
             Crew(i) => vec![
                 PushState(Esc, GameMenu),
@@ -71,16 +72,19 @@ impl State {
                     Crew(circular_index((i as i32) - 1, &app.outpost.crew)),
                 ),
                 PushState(Char('a'), AssignToModule(i, 0)),
+                ApplyDomainEvent(Enter, FinishTurn, false),
             ],
             Research => vec![
                 PushState(Esc, GameMenu),
                 ReplaceState(Tab, Region),
                 ReplaceState(BackTab, Crew(0)),
+                ApplyDomainEvent(Enter, FinishTurn, false),
             ],
             Region => vec![
                 PushState(Esc, GameMenu),
                 ReplaceState(Tab, Outpost(0)),
                 ReplaceState(BackTab, Research),
+                ApplyDomainEvent(Enter, FinishTurn, false),
             ],
             AssignToModule(c, m) => vec![
                 PopState(Esc),
@@ -138,6 +142,7 @@ enum DomainEvent {
     IncrementModuleEnergyLevel,
     DecrementModuleEnergyLevel,
     AssignCrewMemberToModule,
+    FinishTurn,
 }
 
 impl App {
@@ -208,6 +213,9 @@ impl App {
                             }
                             _ => (),
                         },
+                        FinishTurn => {
+                            self.outpost.finish_turn();
+                        }
                     }
                     if *and_pop {
                         self.state.pop();
@@ -285,6 +293,11 @@ impl App {
         let consumption = self.outpost.consumption() + self.outpost.crew_upkeep();
         let production = self.outpost.production();
         let text = vec![Spans::from(vec![
+            Span::styled(
+                format!("turn {}", self.outpost.current_turn),
+                Style::default().fg(to_color(self.palette.text())),
+            ),
+            Span::raw(" | "),
             Span::styled(
                 format!(
                     "{}/{}",
@@ -574,10 +587,14 @@ impl App {
         use State::*;
         match self.current_state() {
             Crew(i) => {
+                if self.outpost.crew.len() <= *i {
+                    return;
+                }
+
                 let crew = &self.outpost.crew[*i];
                 let description = self.outpost.describe_crew_member(&crew);
 
-                let age = Span::raw(format!("age: {}", "TODO"));
+                let age = vec![Span::raw("mood: "), Span::raw(print_i32(crew.mood()))];
                 let mut upkeep = vec![Span::raw("upkeep: ")];
                 upkeep.append(&mut self.resource_string(&description.upkeep));
 
@@ -591,10 +608,9 @@ impl App {
 
                 let chunks = Layout::default()
                     .direction(Vertical)
-                    .constraints([Length(5), Length(9), Min(0)].as_ref())
+                    .constraints([Length(5), Length(8), Min(0)].as_ref())
                     .split(area);
 
-                let mood = print_percentage(description.mood);
                 let biology = print_percentage(description.stats.biology);
                 let chemistry = print_percentage(description.stats.chemistry);
                 let engineering = print_percentage(description.stats.engineering);
@@ -603,13 +619,12 @@ impl App {
                 let military = print_percentage(description.stats.military);
 
                 let data: Vec<Vec<&str>> = vec![
-                    vec!["Mood", &mood],
-                    vec!["Biology", &biology],
-                    vec!["Chemistry", &chemistry],
-                    vec!["Engineering", &engineering],
-                    vec!["Geology", &geology],
-                    vec!["Astrophysics", &astrophysics],
-                    vec!["Military", &military],
+                    vec!["biology", &biology],
+                    vec!["chemistry", &chemistry],
+                    vec!["engineering", &engineering],
+                    vec!["geology", &geology],
+                    vec!["astrophysics", &astrophysics],
+                    vec!["military", &military],
                 ];
                 let rows = data
                     .iter()
@@ -639,6 +654,10 @@ impl App {
                 );
             }
             Outpost(i) => {
+                if self.outpost.modules.len() <= *i {
+                    return;
+                }
+
                 let module = &self.outpost.modules[*i];
                 let description = self.outpost.describe_module(&module);
 
@@ -652,20 +671,24 @@ impl App {
                     .iter()
                     .filter(|&l| l.is_active)
                     .count();
+                let assigned_slots = description
+                    .energy_levels
+                    .iter()
+                    .filter(|&l| l.is_active && l.assignment.is_some())
+                    .count();
                 let energy_level = Span::raw(format!(
                     "energy level: {}/{}",
                     slots,
                     description.energy_levels.len()
                 ));
-                let assigned_slots = Span::raw(format!(
-                    "assigned slots: {}/{}",
-                    description
-                        .energy_levels
-                        .iter()
-                        .filter(|&l| l.is_active && l.assignment.is_some())
-                        .count(),
-                    slots
-                ));
+                let assigned_slots = Span::styled(
+                    format!("assigned slots: {}/{}", assigned_slots, slots),
+                    Style::default().fg(to_color(if assigned_slots > 0 {
+                        self.palette.text()
+                    } else {
+                        self.palette.red()
+                    })),
+                );
 
                 let chunks = Layout::default()
                     .direction(Vertical)
@@ -766,7 +789,11 @@ fn print_i32(v: i32) -> String {
     }
 }
 fn circular_index<T>(index: i32, arr: &Vec<T>) -> usize {
-    (((index % arr.len() as i32) + arr.len() as i32) % arr.len() as i32) as usize
+    if arr.len() == 0 {
+        0
+    } else {
+        (((index % arr.len() as i32) + arr.len() as i32) % arr.len() as i32) as usize
+    }
 }
 
 fn to_color(value: Colour) -> Color {

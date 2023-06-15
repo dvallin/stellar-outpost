@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Sub};
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 use serde::{Deserialize, Serialize};
 
@@ -109,6 +109,18 @@ impl AddAssign for Resources {
             minerals: self.minerals + other.minerals,
             food: self.food + other.food,
             water: self.water + other.water,
+        };
+    }
+}
+
+impl SubAssign for Resources {
+    fn sub_assign(&mut self, other: Self) {
+        *self = Self {
+            energy: self.energy,
+            living_space: self.living_space,
+            minerals: std::cmp::max(self.minerals - other.minerals, 0),
+            food: std::cmp::max(self.food - other.food, 0),
+            water: std::cmp::max(self.water - other.water, 0),
         };
     }
 }
