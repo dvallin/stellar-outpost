@@ -10,7 +10,7 @@ use tui::{
     Frame,
 };
 
-use crate::model::{modules::Module, outpost::Outpost};
+use crate::model::{crew::CrewMember, modules::Module, outpost::Outpost, resources::Resources};
 
 pub struct App {
     pub outpost: Outpost,
@@ -24,6 +24,7 @@ pub enum State {
     GameMenu,
     // module states
     Outpost(usize),
+    AssignCrew(usize, usize),
     // crew states
     Crew(usize),
     AssignToModule(usize, usize),
@@ -55,6 +56,7 @@ impl State {
                 ),
                 ApplyDomainEvent(Char('+'), IncrementModuleEnergyLevel, false),
                 ApplyDomainEvent(Char('-'), DecrementModuleEnergyLevel, false),
+                PushState(Char('a'), AssignCrew(0, i)),
             ],
             Crew(i) => vec![
                 PushState(Esc, GameMenu),
@@ -92,6 +94,18 @@ impl State {
                 ),
                 ApplyDomainEvent(Enter, AssignCrewMemberToModule, true),
             ],
+            AssignCrew(c, m) => vec![
+                PopState(Esc),
+                ReplaceState(
+                    Char('j'),
+                    AssignCrew(circular_index((c as i32) + 1, &app.outpost.crew), m),
+                ),
+                ReplaceState(
+                    Char('k'),
+                    AssignCrew(circular_index((c as i32) - 1, &app.outpost.crew), m),
+                ),
+                ApplyDomainEvent(Enter, AssignCrewMemberToModule, true),
+            ],
         }
     }
 }
@@ -105,7 +119,7 @@ impl std::string::ToString for State {
             Crew(_) => String::from("Crew"),
             Region => String::from("Region"),
             Research => String::from("Research"),
-            AssignToModule(_, _) => String::from("Assign Crew Member to Module"),
+            AssignToModule(_, _) | AssignCrew(_, _) => String::from("Assign Crew Member to Module"),
         }
     }
 }
@@ -189,8 +203,8 @@ impl App {
                             self.current_module().map(|m| m.decrement_energy_level());
                         }
                         AssignCrewMemberToModule => match self.current_state() {
-                            AssignToModule(c, m) => {
-                                self.outpost.assign_crew_member_to_module(*c, *m)
+                            AssignToModule(c, m) | AssignCrew(c, m) => {
+                                self.outpost.assign_crew_member_to_module(*c, *m);
                             }
                             _ => (),
                         },
@@ -317,12 +331,7 @@ impl App {
             ),
         ])];
 
-        f.render_widget(
-            Paragraph::new(text)
-                .alignment(Alignment::Center)
-                .wrap(Wrap { trim: true }),
-            area,
-        )
+        f.render_widget(Paragraph::new(text).alignment(Alignment::Center), area)
     }
 
     fn border<'a>(&self, title: &'a str, focused: bool) -> Block<'a> {
@@ -347,30 +356,7 @@ impl App {
             }
             _ => (),
         };
-        self.modules_list(f, area, "Outpost", &mut state, focused)
-    }
 
-    fn modules_list_assign_to_module<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
-        let mut state: ListState = ListState::default();
-        let mut focused = false;
-        match self.current_state() {
-            State::AssignToModule(_, m) => {
-                state.select(Some(*m));
-                focused = true
-            }
-            _ => (),
-        };
-        self.modules_list(f, area, "Assign To Module", &mut state, focused)
-    }
-
-    fn modules_list<B: Backend>(
-        &self,
-        f: &mut Frame<B>,
-        area: Rect,
-        title: &str,
-        state: &mut ListState,
-        focused: bool,
-    ) {
         let modules: Vec<ListItem> = self
             .outpost
             .modules
@@ -385,7 +371,7 @@ impl App {
 
         f.render_stateful_widget(
             List::new(modules)
-                .block(self.border(title, focused))
+                .block(self.border("Outpost", focused))
                 .highlight_style(
                     Style::default()
                         .add_modifier(Modifier::BOLD)
@@ -393,7 +379,95 @@ impl App {
                 )
                 .highlight_symbol("> "),
             area,
-            state,
+            &mut state,
+        )
+    }
+
+    fn modules_list_assign_to_module<B: Backend>(
+        &self,
+        f: &mut Frame<B>,
+        crew: &CrewMember,
+        area: Rect,
+    ) {
+        let mut state: ListState = ListState::default();
+        let mut focused = false;
+        match self.current_state() {
+            State::AssignToModule(_, m) => {
+                state.select(Some(*m));
+                focused = true
+            }
+            _ => (),
+        };
+
+        let modules: Vec<ListItem> = self
+            .outpost
+            .modules
+            .iter()
+            .map(|m| {
+                let mut line = vec![Span::styled(
+                    m.name(),
+                    Style::default().fg(to_color(self.palette.text())),
+                )];
+                line.append(&mut self.resource_string(&m.production_bonus(crew)));
+                ListItem::new(Spans::from(line))
+            })
+            .collect();
+
+        f.render_stateful_widget(
+            List::new(modules)
+                .block(self.border("Assign To Module", focused))
+                .highlight_style(
+                    Style::default()
+                        .add_modifier(Modifier::BOLD)
+                        .bg(to_color(self.palette.overlay0())),
+                )
+                .highlight_symbol("> "),
+            area,
+            &mut state,
+        )
+    }
+
+    fn crew_list_assign_to_module<B: Backend>(
+        &self,
+        f: &mut Frame<B>,
+        module: &Box<dyn Module>,
+        area: Rect,
+    ) {
+        let mut state: ListState = ListState::default();
+        let mut focused = false;
+        match self.current_state() {
+            State::AssignCrew(c, _) => {
+                state.select(Some(*c));
+                focused = true
+            }
+            _ => (),
+        };
+
+        let crew: Vec<ListItem> = self
+            .outpost
+            .crew
+            .iter()
+            .map(|c| {
+                let mut line = vec![Span::styled(
+                    c.name(),
+                    Style::default().fg(to_color(self.palette.text())),
+                )];
+                line.append(&mut self.resource_string(&module.production_bonus(c)));
+                ListItem::new(Spans::from(line))
+            })
+            .collect();
+
+        f.render_stateful_widget(
+            List::new(crew)
+                .block(self.border("Assign To Module", focused))
+                .highlight_style(
+                    Style::default()
+                        .add_modifier(Modifier::BOLD)
+                        .bg(to_color(self.palette.overlay0())),
+                )
+                .highlight_symbol("> "),
+            area,
+            &mut state,
         )
     }
 
@@ -459,12 +533,66 @@ impl App {
         )
     }
 
+    fn resource_string(&self, resource: &Resources) -> Vec<Span> {
+        let mut result = vec![];
+        if resource.energy != 0 {
+            result.push(Span::styled(
+                format!("{}e ", print_i32(resource.energy)),
+                Style::default().fg(to_color(self.palette.yellow())),
+            ))
+        }
+        if resource.living_space != 0 {
+            result.push(Span::styled(
+                format!("{}l ", print_i32(resource.living_space)),
+                Style::default().fg(to_color(self.palette.peach())),
+            ))
+        }
+        if resource.minerals != 0 {
+            result.push(Span::styled(
+                format!("{}m ", print_i32(resource.minerals)),
+                Style::default().fg(to_color(self.palette.sapphire())),
+            ))
+        }
+        if resource.food != 0 {
+            result.push(Span::styled(
+                format!("{}f ", print_i32(resource.food)),
+                Style::default().fg(to_color(self.palette.green())),
+            ))
+        }
+        if resource.water != 0 {
+            result.push(Span::styled(
+                format!("{}w ", print_i32(resource.water)),
+                Style::default().fg(to_color(self.palette.blue())),
+            ))
+        }
+        result
+    }
+
     fn focus<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
+        use Constraint::*;
+        use Direction::*;
         use State::*;
         match self.current_state() {
             Crew(i) => {
                 let crew = &self.outpost.crew[*i];
                 let description = self.outpost.describe_crew_member(&crew);
+
+                let age = Span::raw(format!("age: {}", "TODO"));
+                let mut upkeep = vec![Span::raw("upkeep: ")];
+                upkeep.append(&mut self.resource_string(&description.upkeep));
+
+                let mut assignment = vec![Span::raw(format!(
+                    "assignment: {} ",
+                    description.assigned_module_name()
+                ))];
+                assignment.append(&mut self.resource_string(&description.flow()));
+
+                let biography = Span::raw("Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.");
+
+                let chunks = Layout::default()
+                    .direction(Vertical)
+                    .constraints([Length(5), Length(9), Min(0)].as_ref())
+                    .split(area);
 
                 let mood = print_percentage(description.mood);
                 let biology = print_percentage(description.stats.biology);
@@ -486,121 +614,101 @@ impl App {
                 let rows = data
                     .iter()
                     .map(|row| Row::new(row.iter().map(|c| Cell::from(*c))));
+
+                f.render_widget(
+                    Paragraph::new(vec![
+                        Spans::from(age),
+                        Spans::from(upkeep),
+                        Spans::from(assignment),
+                    ])
+                    .block(self.border(description.name, false))
+                    .wrap(Wrap { trim: true }),
+                    chunks[0],
+                );
                 f.render_widget(
                     Table::new(rows)
                         .block(self.border("Stats", false))
                         .widths(&[Constraint::Percentage(70), Constraint::Percentage(30)]),
-                    area,
-                )
+                    chunks[1],
+                );
+                f.render_widget(
+                    Paragraph::new(vec![Spans::from(biography)])
+                        .block(self.border("Biography", false))
+                        .wrap(Wrap { trim: true }),
+                    chunks[2],
+                );
             }
             Outpost(i) => {
                 let module = &self.outpost.modules[*i];
-
-                f.render_widget(self.border(module.name(), false), area);
-
                 let description = self.outpost.describe_module(&module);
 
-                let energy_consumption = description.consumption.energy.to_string();
-                let energy_production = description.production.energy.to_string();
-                let living_space_consumption = description.consumption.living_space.to_string();
-                let living_space_production = description.production.living_space.to_string();
-                let minerals_consumption = description.consumption.minerals.to_string();
-                let minerals_production = description.production.minerals.to_string();
-                let food_consumption = description.consumption.food.to_string();
-                let food_production = description.production.food.to_string();
-                let water_consumption = description.consumption.water.to_string();
-                let water_production = description.production.water.to_string();
+                let flow = description.production - description.consumption;
 
-                let header_data = vec!["Resource", "In", "Out"];
-                let header_cells = header_data.iter().map(|h| {
-                    Cell::from(*h).style(Style::default().fg(to_color(self.palette.subtext0())))
-                });
-                let header = Row::new(header_cells);
+                let mut resource_flow = vec![Span::raw("resource flow: ")];
+                resource_flow.append(&mut self.resource_string(&flow));
 
-                let mut data: Vec<Vec<&str>> = vec![];
-
-                if description.consumption.energy != 0 || description.production.energy != 0 {
-                    data.push(vec!["Energy", &energy_consumption, &energy_production])
-                }
-                if description.consumption.living_space != 0
-                    || description.production.living_space != 0
-                {
-                    data.push(vec![
-                        "Living Space",
-                        &living_space_consumption,
-                        &living_space_production,
-                    ])
-                }
-                if description.consumption.minerals != 0 || description.production.minerals != 0 {
-                    data.push(vec![
-                        "Minerals",
-                        &minerals_consumption,
-                        &minerals_production,
-                    ])
-                }
-                if description.consumption.food != 0 || description.production.food != 0 {
-                    data.push(vec!["Food", &food_consumption, &food_production])
-                }
-                if description.consumption.water != 0 || description.production.water != 0 {
-                    data.push(vec!["Water", &water_consumption, &water_production])
-                }
-
-                let rows = data
-                    .iter()
-                    .map(|row| Row::new(row.iter().map(|c| Cell::from(*c))));
-
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(
-                        [
-                            Constraint::Length((data.len() + 3) as u16),
-                            Constraint::Min(0),
-                        ]
-                        .as_ref(),
-                    )
-                    .split(area);
-
-                f.render_widget(
-                    Table::new(rows)
-                        .header(header)
-                        .block(self.border("Production", false))
-                        .widths(&[
-                            Constraint::Percentage(70),
-                            Constraint::Percentage(15),
-                            Constraint::Percentage(15),
-                        ]),
-                    chunks[0],
-                );
-
-                let header_data = vec!["Active", "In", "Out"];
-                let header_cells = header_data.iter().map(|h| {
-                    Cell::from(*h).style(Style::default().fg(to_color(self.palette.subtext0())))
-                });
-                let header = Row::new(header_cells);
-
-                let data: Vec<Vec<&str>> = description
+                let slots = description
                     .energy_levels
                     .iter()
-                    .map(|l| {
-                        let is_active = if l.is_active { "X" } else { "" };
-                        vec![is_active, "TODO", "TODO"]
-                    })
-                    .collect();
+                    .filter(|&l| l.is_active)
+                    .count();
+                let energy_level = Span::raw(format!(
+                    "energy level: {}/{}",
+                    slots,
+                    description.energy_levels.len()
+                ));
+                let assigned_slots = Span::raw(format!(
+                    "assigned slots: {}/{}",
+                    description
+                        .energy_levels
+                        .iter()
+                        .filter(|&l| l.is_active && l.assignment.is_some())
+                        .count(),
+                    slots
+                ));
 
-                let rows = data
-                    .iter()
-                    .map(|row| Row::new(row.iter().map(|c| Cell::from(*c))));
+                let chunks = Layout::default()
+                    .direction(Vertical)
+                    .constraints([Length(5), Min(0)].as_ref())
+                    .split(area);
+
+                let energy_level_chunks = Layout::default()
+                    .direction(Vertical)
+                    .constraints(vec![Length(3); slots])
+                    .split(chunks[1]);
+
                 f.render_widget(
-                    Table::new(rows)
-                        .header(header)
-                        .block(self.border("Energy Levels", false))
-                        .widths(&[
-                            Constraint::Percentage(70),
-                            Constraint::Percentage(15),
-                            Constraint::Percentage(15),
-                        ]),
-                    chunks[1],
-                )
+                    Paragraph::new(vec![
+                        Spans::from(resource_flow),
+                        Spans::from(energy_level),
+                        Spans::from(assigned_slots),
+                    ])
+                    .block(self.border(description.name, false)),
+                    chunks[0],
+                );
+                for (i, d) in description
+                    .energy_levels
+                    .iter()
+                    .filter(|&l| l.is_active)
+                    .enumerate()
+                {
+                    let mut level_description = self.resource_string(&d.flow());
+                    level_description.push(Span::raw(" ("));
+                    level_description.push(Span::raw(d.assigned_crew_name()));
+                    level_description.push(Span::raw(")"));
+
+                    f.render_widget(
+                        Paragraph::new(Spans::from(level_description)).block(
+                            Block::default()
+                                .title(format!("level {}", i))
+                                .borders(Borders::TOP)
+                                .border_style(
+                                    Style::default().fg(to_color(self.palette.overlay0())),
+                                ),
+                        ),
+                        energy_level_chunks[i],
+                    )
+                }
             }
             GameMenu => {
                 let header_data = vec!["Action", "Key"];
@@ -631,7 +739,14 @@ impl App {
                     area,
                 )
             }
-            AssignToModule(_, _) => self.modules_list_assign_to_module(f, area),
+            AssignToModule(c, _) => {
+                let crew_member = &self.outpost.crew[*c];
+                self.modules_list_assign_to_module(f, crew_member, area);
+            }
+            AssignCrew(_, m) => {
+                let module = &self.outpost.modules[*m];
+                self.crew_list_assign_to_module(f, module, area);
+            }
             Research => {
                 f.render_widget(self.border(&self.current_state().to_string(), false), area)
             }

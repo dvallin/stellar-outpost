@@ -40,12 +40,18 @@ impl Module for PowerGenerator {
     ) -> Vec<ModuleEnergyLevelDescription<'a>> {
         vec![]
     }
+    fn available_slots<'a>(&self, _crew: &Vec<&'a CrewMember>) -> usize {
+        0
+    }
 
     fn consumption(&self) -> Resources {
         Resources::zero()
     }
     fn production(&self, _crew: &Vec<&CrewMember>) -> Resources {
         Resources::energy(self.production)
+    }
+    fn production_bonus(&self, _crew: &CrewMember) -> Resources {
+        Resources::zero()
     }
 
     fn finish_turn(&self) {}

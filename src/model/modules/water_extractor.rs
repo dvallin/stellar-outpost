@@ -54,11 +54,12 @@ impl Module for WaterExtractor {
         let mut levels: Vec<ModuleEnergyLevelDescription> = vec![];
         for e in 1..4 {
             if e <= self.energy_level {
-                let assignment = crew.get(e as usize).map(|c| ModuleAssignmentDescription {
-                    crew_name: c.name(),
-                    production_bonus: Resources::water(production_bonus(c)),
-                });
-
+                let assignment = crew
+                    .get((e - 1) as usize)
+                    .map(|c| ModuleAssignmentDescription {
+                        crew_name: c.name(),
+                        production_bonus: self.production_bonus(c),
+                    });
                 levels.push(ModuleEnergyLevelDescription {
                     is_active: true,
                     consumption: Resources::energy(1),
@@ -80,6 +81,9 @@ impl Module for WaterExtractor {
     fn consumption(&self) -> Resources {
         Resources::energy(self.energy_level)
     }
+    fn available_slots<'a>(&self, crew: &Vec<&'a CrewMember>) -> usize {
+        std::cmp::max(self.energy_level - crew.len() as i32, 0) as usize
+    }
 
     fn production(&self, crew: &Vec<&CrewMember>) -> Resources {
         let mut crew_bonus = 0;
@@ -87,6 +91,9 @@ impl Module for WaterExtractor {
             crew_bonus += production_bonus(member)
         }
         Resources::water(std::cmp::max(self.energy_level + crew_bonus, 0))
+    }
+    fn production_bonus(&self, crew: &CrewMember) -> Resources {
+        Resources::water(production_bonus(crew))
     }
 
     fn finish_turn(&self) {}

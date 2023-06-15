@@ -54,10 +54,12 @@ impl Module for Mine {
         let mut levels: Vec<ModuleEnergyLevelDescription> = vec![];
         for e in 1..4 {
             if e <= self.energy_level {
-                let assignment = crew.get(e as usize).map(|c| ModuleAssignmentDescription {
-                    crew_name: c.name(),
-                    production_bonus: Resources::minerals(production_bonus(c)),
-                });
+                let assignment = crew
+                    .get((e - 1) as usize)
+                    .map(|c| ModuleAssignmentDescription {
+                        crew_name: c.name(),
+                        production_bonus: self.production_bonus(c),
+                    });
 
                 levels.push(ModuleEnergyLevelDescription {
                     is_active: true,
@@ -76,6 +78,9 @@ impl Module for Mine {
         }
         levels
     }
+    fn available_slots<'a>(&self, crew: &Vec<&'a CrewMember>) -> usize {
+        std::cmp::max(self.energy_level - crew.len() as i32, 0) as usize
+    }
 
     fn consumption(&self) -> Resources {
         Resources::energy(self.energy_level)
@@ -86,6 +91,9 @@ impl Module for Mine {
             crew_bonus += production_bonus(member)
         }
         Resources::minerals(self.energy_level + crew_bonus)
+    }
+    fn production_bonus(&self, crew: &CrewMember) -> Resources {
+        Resources::minerals(production_bonus(crew))
     }
 
     fn finish_turn(&self) {}

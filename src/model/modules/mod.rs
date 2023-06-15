@@ -8,6 +8,23 @@ pub struct ModuleEnergyLevelDescription<'a> {
     pub production: Resources,
     pub assignment: Option<ModuleAssignmentDescription<'a>>,
 }
+impl<'a> ModuleEnergyLevelDescription<'a> {
+    pub fn assigned_crew_name(&self) -> String {
+        match &self.assignment {
+            Some(a) => a.crew_name.to_string(),
+            None => String::from("empty"),
+        }
+    }
+    pub fn flow(&self) -> Resources {
+        let zero = Resources::zero();
+        let bonus = match &self.assignment {
+            Some(a) => &a.production_bonus,
+            None => &zero,
+        };
+        self.production.clone() - self.consumption.clone() + bonus.clone()
+    }
+}
+
 pub struct ModuleAssignmentDescription<'a> {
     pub crew_name: &'a String,
     pub production_bonus: Resources,
@@ -26,9 +43,11 @@ pub trait Module {
         &self,
         crew: &Vec<&'a CrewMember>,
     ) -> Vec<ModuleEnergyLevelDescription<'a>>;
+    fn available_slots<'a>(&self, crew: &Vec<&'a CrewMember>) -> usize;
 
     fn consumption(&self) -> Resources;
     fn production(&self, crew: &Vec<&CrewMember>) -> Resources;
+    fn production_bonus(&self, crew: &CrewMember) -> Resources;
 
     fn finish_turn(&self);
 }

@@ -30,6 +30,15 @@ impl CrewMember {
     pub fn stats(&self) -> &Stats {
         &self.stats
     }
+    pub fn upkeep(&self) -> Resources {
+        Resources {
+            energy: 0,
+            living_space: 1,
+            minerals: 0,
+            food: 1,
+            water: 1,
+        }
+    }
     pub fn mood(&self) -> i32 {
         let mut m: i32 = 50;
         if self.is_hungry {

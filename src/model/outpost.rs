@@ -25,12 +25,29 @@ pub struct CrewDescription<'a> {
     pub name: &'a String,
     pub mood: i32,
     pub stats: &'a Stats,
+    pub upkeep: Resources,
     pub assignment: Option<CrewAssignmentDescription<'a>>,
+}
+impl<'a> CrewDescription<'a> {
+    pub fn assigned_module_name(&self) -> String {
+        match &self.assignment {
+            Some(a) => a.module_name.to_string(),
+            None => String::from("not assigned"),
+        }
+    }
+    pub fn flow(&self) -> Resources {
+        let zero = Resources::zero();
+        let bonus = match &self.assignment {
+            Some(a) => &a.production_bonus,
+            None => &zero,
+        };
+        bonus.clone()
+    }
 }
 
 pub struct CrewAssignmentDescription<'a> {
     pub module_name: &'a String,
-    pub production: Resources,
+    pub production_bonus: Resources,
 }
 
 pub struct ModuleDescription<'a> {
@@ -94,13 +111,14 @@ impl Outpost {
             name: crew.name(),
             mood: crew.mood(),
             stats: crew.stats(),
+            upkeep: crew.upkeep(),
             assignment: crew
                 .assigned_module()
                 .as_ref()
                 .and_then(|a| self.module(&a))
                 .map(|m: &Box<dyn Module>| CrewAssignmentDescription {
                     module_name: m.name(),
-                    production: Resources::zero(),
+                    production_bonus: m.production_bonus(crew),
                 }),
         }
     }
@@ -143,8 +161,9 @@ impl Outpost {
     }
 
     pub fn assign_crew_member_to_module(&mut self, crew_index: usize, module_index: usize) {
+        let module = &self.modules[module_index];
         let crew = &mut self.crew[crew_index];
-        crew.assign_to_module(self.modules[module_index].name());
+        crew.assign_to_module(module.name());
     }
 
     pub fn consumption(&self) -> Resources {
@@ -187,17 +206,32 @@ impl Outpost {
 
     fn support_crew(&mut self) {
         let mut available_space = self.resources.living_space;
+        let mut available_energy = self.resources.energy;
         for c in self.crew.iter_mut() {
-            if self.resources.food > 0 {
-                self.resources.food -= 1;
+            let upkeep = c.upkeep();
+
+            if upkeep.food == 0 && upkeep.minerals == 0 {
+                c.eat()
+            } else if self.resources.food >= upkeep.food
+                && self.resources.minerals >= upkeep.minerals
+            {
+                self.resources.food -= upkeep.food;
+                self.resources.minerals -= upkeep.minerals;
                 c.eat();
             }
-            if self.resources.water > 0 {
-                self.resources.water -= 1;
+
+            if upkeep.water == 0 && upkeep.energy == 0 {
+                c.drink()
+            } else if self.resources.water >= upkeep.water && available_energy >= upkeep.energy {
+                self.resources.water -= upkeep.water;
+                available_energy -= upkeep.energy;
                 c.drink();
             }
-            if available_space > 0 {
-                available_space -= 1;
+
+            if upkeep.living_space == 0 {
+                c.rest()
+            } else if available_space >= upkeep.living_space {
+                available_space -= upkeep.living_space;
                 c.rest();
             }
         }

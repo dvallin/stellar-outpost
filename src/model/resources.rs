@@ -1,5 +1,4 @@
-use std::ops::Add;
-use std::ops::AddAssign;
+use std::ops::{Add, AddAssign, Sub};
 
 use serde::{Deserialize, Serialize};
 
@@ -85,6 +84,19 @@ impl Add for Resources {
             minerals: self.minerals + other.minerals,
             food: self.food + other.food,
             water: self.water + other.water,
+        }
+    }
+}
+impl Sub for Resources {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self {
+        Self {
+            energy: self.energy - other.energy,
+            living_space: self.living_space - other.living_space,
+            minerals: self.minerals - other.minerals,
+            food: self.food - other.food,
+            water: self.water - other.water,
         }
     }
 }

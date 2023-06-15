@@ -66,12 +66,18 @@ impl Module for LivingQuarters {
         }
         levels
     }
+    fn available_slots<'a>(&self, _crew: &Vec<&'a CrewMember>) -> usize {
+        0
+    }
 
     fn consumption(&self) -> Resources {
         Resources::energy(self.energy_level)
     }
     fn production(&self, _crew: &Vec<&CrewMember>) -> Resources {
         Resources::living_space(self.energy_level * 2)
+    }
+    fn production_bonus(&self, _crew: &CrewMember) -> Resources {
+        Resources::zero()
     }
 
     fn finish_turn(&self) {}
