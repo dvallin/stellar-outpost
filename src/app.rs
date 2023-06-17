@@ -1,5 +1,6 @@
 use catppuccin::{Colour, Flavour};
 use crossterm::event::KeyCode;
+use serde::{Deserialize, Serialize};
 use std::io;
 use tui::{
     backend::Backend,
@@ -10,10 +11,12 @@ use tui::{
     Frame,
 };
 
-use crate::model::{crew::CrewMember, modules::Module, outpost::Outpost, resources::Resources};
+use crate::model::{
+    crew::CrewMember, modules::Module, outpost::Outpost, resources::Resources, Game,
+};
 
 pub struct App {
-    pub outpost: Outpost,
+    pub game: Game,
     pub palette: Flavour,
 
     pub state: Vec<State>,
@@ -48,11 +51,11 @@ impl State {
                 ReplaceState(BackTab, Region),
                 ReplaceState(
                     Char('j'),
-                    Outpost(circular_index((i as i32) + 1, &app.outpost.modules)),
+                    Outpost(circular_index((i as i32) + 1, &app.game.outpost.modules)),
                 ),
                 ReplaceState(
                     Char('k'),
-                    Outpost(circular_index((i as i32) - 1, &app.outpost.modules)),
+                    Outpost(circular_index((i as i32) - 1, &app.game.outpost.modules)),
                 ),
                 ApplyDomainEvent(Char('+'), IncrementModuleEnergyLevel, false),
                 ApplyDomainEvent(Char('-'), DecrementModuleEnergyLevel, false),
@@ -65,11 +68,11 @@ impl State {
                 ReplaceState(BackTab, Outpost(0)),
                 ReplaceState(
                     Char('j'),
-                    Crew(circular_index((i as i32) + 1, &app.outpost.crew)),
+                    Crew(circular_index((i as i32) + 1, &app.game.outpost.crew)),
                 ),
                 ReplaceState(
                     Char('k'),
-                    Crew(circular_index((i as i32) - 1, &app.outpost.crew)),
+                    Crew(circular_index((i as i32) - 1, &app.game.outpost.crew)),
                 ),
                 PushState(Char('a'), AssignToModule(i, 0)),
                 ApplyDomainEvent(Enter, FinishTurn, false),
@@ -90,11 +93,11 @@ impl State {
                 PopState(Esc),
                 ReplaceState(
                     Char('j'),
-                    AssignToModule(c, circular_index((m as i32) + 1, &app.outpost.modules)),
+                    AssignToModule(c, circular_index((m as i32) + 1, &app.game.outpost.modules)),
                 ),
                 ReplaceState(
                     Char('k'),
-                    AssignToModule(c, circular_index((m as i32) - 1, &app.outpost.modules)),
+                    AssignToModule(c, circular_index((m as i32) - 1, &app.game.outpost.modules)),
                 ),
                 ApplyDomainEvent(Enter, AssignCrewMemberToModule, true),
             ],
@@ -102,11 +105,11 @@ impl State {
                 PopState(Esc),
                 ReplaceState(
                     Char('j'),
-                    AssignCrew(circular_index((c as i32) + 1, &app.outpost.crew), m),
+                    AssignCrew(circular_index((c as i32) + 1, &app.game.outpost.crew), m),
                 ),
                 ReplaceState(
                     Char('k'),
-                    AssignCrew(circular_index((c as i32) - 1, &app.outpost.crew), m),
+                    AssignCrew(circular_index((c as i32) - 1, &app.game.outpost.crew), m),
                 ),
                 ApplyDomainEvent(Enter, AssignCrewMemberToModule, true),
             ],
@@ -149,13 +152,13 @@ impl App {
     pub fn new() -> App {
         let input_path = "./saves/current.json";
 
-        let outpost: Outpost = std::fs::File::open(input_path)
+        let game: Game = std::fs::File::open(input_path)
             .ok()
             .and_then(|data| serde_json::from_reader(data).ok())
-            .unwrap_or_else(Outpost::new);
+            .unwrap_or_else(Game::new);
 
         App {
-            outpost,
+            game,
             palette: Flavour::Mocha,
             state: vec![State::Outpost(0)],
         }
@@ -193,7 +196,7 @@ impl App {
                     None
                 }
                 QuitAndSave(_) => {
-                    let data = serde_json::to_string(&self.outpost).unwrap();
+                    let data = serde_json::to_string(&self.game).unwrap();
                     let output_path = "./saves/current.json";
                     let _ = std::fs::create_dir_all("./saves");
                     let _ = std::fs::write(output_path, data);
@@ -209,12 +212,12 @@ impl App {
                         }
                         AssignCrewMemberToModule => match self.current_state() {
                             AssignToModule(c, m) | AssignCrew(c, m) => {
-                                self.outpost.assign_crew_member_to_module(*c, *m);
+                                self.game.outpost.assign_crew_member_to_module(*c, *m);
                             }
                             _ => (),
                         },
                         FinishTurn => {
-                            self.outpost.finish_turn();
+                            self.game.finish_turn();
                         }
                     }
                     if *and_pop {
@@ -284,17 +287,17 @@ impl App {
 
     fn current_module(&mut self) -> Option<&mut Box<dyn Module>> {
         match self.state.last().unwrap() {
-            State::Outpost(i) => Some(&mut self.outpost.modules[*i]),
+            State::Outpost(i) => Some(&mut self.game.outpost.modules[*i]),
             _ => None,
         }
     }
 
     fn header<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
-        let consumption = self.outpost.consumption() + self.outpost.crew_upkeep();
-        let production = self.outpost.production();
+        let consumption = self.game.outpost.consumption() + self.game.outpost.crew_upkeep();
+        let production = self.game.outpost.production();
         let text = vec![Spans::from(vec![
             Span::styled(
-                format!("turn {}", self.outpost.current_turn),
+                format!("turn {}", self.game.state.current_turn),
                 Style::default().fg(to_color(self.palette.text())),
             ),
             Span::raw(" | "),
@@ -319,7 +322,7 @@ impl App {
             Span::styled(
                 format!(
                     "{}({})",
-                    self.outpost.resources.minerals.to_string(),
+                    self.game.outpost.resources.minerals.to_string(),
                     print_i32(production.minerals - consumption.minerals),
                 ),
                 Style::default().fg(to_color(self.palette.sapphire())),
@@ -328,7 +331,7 @@ impl App {
             Span::styled(
                 format!(
                     "{}({})",
-                    self.outpost.resources.food.to_string(),
+                    self.game.outpost.resources.food.to_string(),
                     print_i32(production.food - consumption.food),
                 ),
                 Style::default().fg(to_color(self.palette.green())),
@@ -337,7 +340,7 @@ impl App {
             Span::styled(
                 format!(
                     "{}({})",
-                    self.outpost.resources.water.to_string(),
+                    self.game.outpost.resources.water.to_string(),
                     print_i32(production.water - consumption.water),
                 ),
                 Style::default().fg(to_color(self.palette.blue())),
@@ -371,6 +374,7 @@ impl App {
         };
 
         let modules: Vec<ListItem> = self
+            .game
             .outpost
             .modules
             .iter()
@@ -413,6 +417,7 @@ impl App {
         };
 
         let modules: Vec<ListItem> = self
+            .game
             .outpost
             .modules
             .iter()
@@ -457,6 +462,7 @@ impl App {
         };
 
         let crew: Vec<ListItem> = self
+            .game
             .outpost
             .crew
             .iter()
@@ -486,6 +492,7 @@ impl App {
 
     fn crew_list<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
         let crew: Vec<ListItem> = self
+            .game
             .outpost
             .crew
             .iter()
@@ -587,12 +594,12 @@ impl App {
         use State::*;
         match self.current_state() {
             Crew(i) => {
-                if self.outpost.crew.len() <= *i {
+                if self.game.outpost.crew.len() <= *i {
                     return;
                 }
 
-                let crew = &self.outpost.crew[*i];
-                let description = self.outpost.describe_crew_member(&crew);
+                let crew = &self.game.outpost.crew[*i];
+                let description = self.game.outpost.describe_crew_member(&crew);
 
                 let health = vec![
                     Span::raw("health: "),
@@ -659,12 +666,12 @@ impl App {
                 );
             }
             Outpost(i) => {
-                if self.outpost.modules.len() <= *i {
+                if self.game.outpost.modules.len() <= *i {
                     return;
                 }
 
-                let module = &self.outpost.modules[*i];
-                let description = self.outpost.describe_module(&module);
+                let module = &self.game.outpost.modules[*i];
+                let description = self.game.outpost.describe_module(&module);
 
                 let flow = description.production - description.consumption;
 
@@ -768,11 +775,11 @@ impl App {
                 )
             }
             AssignToModule(c, _) => {
-                let crew_member = &self.outpost.crew[*c];
+                let crew_member = &self.game.outpost.crew[*c];
                 self.modules_list_assign_to_module(f, crew_member, area);
             }
             AssignCrew(_, m) => {
-                let module = &self.outpost.modules[*m];
+                let module = &self.game.outpost.modules[*m];
                 self.crew_list_assign_to_module(f, module, area);
             }
             Research => {

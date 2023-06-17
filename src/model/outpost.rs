@@ -6,6 +6,7 @@ use crate::model::resources::Resources;
 use serde::{Deserialize, Serialize};
 
 use super::{
+    game_state::GameState,
     modules::{
         farm::Farm, water_extractor::WaterExtractor, ModuleEnergyLevelDescription, ModulePriority,
     },
@@ -18,8 +19,6 @@ pub struct Outpost {
     pub modules: Vec<Box<dyn Module>>,
     pub crew: Vec<CrewMember>,
     pub cemetery: Vec<CrewMember>,
-    pub logs: Vec<String>,
-    pub current_turn: u32,
 }
 
 pub struct CrewDescription<'a> {
@@ -65,8 +64,6 @@ impl Outpost {
             crew: vec![],
             cemetery: vec![],
             modules: vec![],
-            logs: vec![],
-            current_turn: 0,
 
             resources: Resources {
                 energy: 0,
@@ -99,9 +96,6 @@ impl Outpost {
 
         s.assign_crew_member_to_module(0, 2);
         s.assign_crew_member_to_module(1, 3);
-
-        s.logs.push(String::from("Outpost built"));
-        s.logs.push(String::from("Crew hired"));
 
         s
     }
@@ -153,7 +147,7 @@ impl Outpost {
         }
     }
 
-    pub fn finish_turn(&mut self) {
+    pub fn finish_turn(&mut self, _state: &mut GameState) {
         self.store_production();
 
         for c in self.crew.iter_mut() {
@@ -166,8 +160,6 @@ impl Outpost {
 
         self.support_modules();
         self.support_crew();
-
-        self.current_turn += 1;
     }
 
     pub fn assign_crew_member_to_module(&mut self, crew_index: usize, module_index: usize) {
