@@ -594,7 +594,11 @@ impl App {
                 let crew = &self.outpost.crew[*i];
                 let description = self.outpost.describe_crew_member(&crew);
 
-                let age = vec![Span::raw("mood: "), Span::raw(print_i32(crew.mood()))];
+                let health = vec![
+                    Span::raw("health: "),
+                    Span::raw(print_percentage(crew.health())),
+                ];
+                let mood = vec![Span::raw("mood: "), Span::raw(print_i32(crew.mood()))];
                 let mut upkeep = vec![Span::raw("upkeep: ")];
                 upkeep.append(&mut self.resource_string(&description.upkeep));
 
@@ -608,7 +612,7 @@ impl App {
 
                 let chunks = Layout::default()
                     .direction(Vertical)
-                    .constraints([Length(5), Length(8), Min(0)].as_ref())
+                    .constraints([Length(6), Length(8), Min(0)].as_ref())
                     .split(area);
 
                 let biology = print_percentage(description.stats.biology);
@@ -632,7 +636,8 @@ impl App {
 
                 f.render_widget(
                     Paragraph::new(vec![
-                        Spans::from(age),
+                        Spans::from(health),
+                        Spans::from(mood),
                         Spans::from(upkeep),
                         Spans::from(assignment),
                     ])

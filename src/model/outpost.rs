@@ -3,7 +3,6 @@ use crate::model::modules::living_quarters::LivingQuarters;
 use crate::model::modules::power_generator::PowerGenerator;
 use crate::model::modules::Module;
 use crate::model::resources::Resources;
-use core::cmp::min;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -249,27 +248,36 @@ impl Outpost {
     }
 
     fn support_modules(&mut self) {
-        let missing_energy = self.consumption().energy - self.resources.energy;
-        if missing_energy > 0 {
-            self.cut_energy(missing_energy);
+        loop {
+            let consumption = self.consumption();
+            let can_self_sustain = self.resources.energy >= consumption.energy
+                && self.resources.living_space >= consumption.living_space
+                && self.resources.minerals >= consumption.minerals
+                && self.resources.food >= consumption.food
+                && self.resources.water >= consumption.water;
+            if can_self_sustain {
+                break;
+            }
+            self.cut_energy(consumption);
         }
         self.resources -= self.consumption();
     }
 
-    fn cut_energy(&mut self, mut missing_energy: i32) {
-        // sorting the modules by priority
+    fn cut_energy(&mut self, consumption: Resources) {
+        // run over all modules starting with lowest priority
         self.sort_modules_asc_by_priority();
-
-        // now cut greedily as much energy as necessary
         for m in self.modules.iter_mut() {
-            let module_consumption = m.consumption();
-            let energy_cut = min(module_consumption.energy, missing_energy);
-
-            missing_energy -= energy_cut;
-            m.set_energy_level(module_consumption.energy - energy_cut);
-
-            if missing_energy <= 0 {
-                break;
+            // find out if this module is a relevant consumer
+            let delta = consumption.clone() - self.resources.clone();
+            let consumption = m.consumption();
+            let module_is_relevant = (delta.energy > 0 && consumption.energy > 0)
+                || (delta.living_space > 0 && consumption.living_space > 0)
+                || (delta.minerals > 0 && consumption.minerals > 0)
+                || (delta.food > 0 && consumption.food > 0)
+                || (delta.water > 0 && consumption.water > 0);
+            if module_is_relevant {
+                m.decrement_energy_level();
+                return;
             }
         }
     }

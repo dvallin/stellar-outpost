@@ -32,6 +32,9 @@ impl CrewMember {
     pub fn stats(&self) -> &Stats {
         &self.stats
     }
+    pub fn health(&self) -> i32 {
+        (self.health * 20) as i32
+    }
     pub fn is_alive(&self) -> bool {
         self.health > 0
     }
@@ -58,7 +61,7 @@ impl CrewMember {
         2 * m.clamp(0, 100) - 100
     }
     pub fn apply_mood(&self, stat_bonus: f32) -> i32 {
-        let mood_modifier = self.mood() as f32 / 25.0;
+        let mood_modifier = self.mood() as f32 / 50.0;
         (stat_bonus * (1.0 + mood_modifier)).ceil() as i32
     }
 
