@@ -1,6 +1,6 @@
 use crate::model::resources::Resources;
 
-use super::crew::CrewMember;
+use super::{crew::CrewMember, Entity};
 
 pub struct ModuleEnergyLevelDescription<'a> {
     pub is_active: bool,
@@ -31,7 +31,7 @@ pub struct ModuleAssignmentDescription<'a> {
 }
 
 #[typetag::serde(tag = "type")]
-pub trait Module {
+pub trait Module: Entity {
     fn name(&self) -> &String;
 
     fn priority(&self) -> ModulePriority;
@@ -61,6 +61,5 @@ pub enum ModulePriority {
 
 pub mod farm;
 pub mod living_quarters;
-pub mod mine;
 pub mod power_generator;
 pub mod water_extractor;

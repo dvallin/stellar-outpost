@@ -1,10 +1,12 @@
-use super::{modules::Module, resources::Resources, stats::Stats};
+use super::{modules::Module, resources::Resources, stats::Stats, Entity};
 
+use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CrewMember {
     pub stats: Stats,
+    id: String,
     name: String,
     is_hungry: bool,
     is_thirsty: bool,
@@ -16,6 +18,7 @@ pub struct CrewMember {
 impl CrewMember {
     pub fn new(name: &str) -> Self {
         Self {
+            id: nanoid!(),
             name: name.to_string(),
             is_hungry: false,
             is_thirsty: false,
@@ -88,13 +91,19 @@ impl CrewMember {
     pub fn assigned_module(&self) -> &Option<String> {
         &self.assigned_module
     }
-    pub fn assign_to_module(&mut self, module_name: &String) {
-        self.assigned_module = Some(module_name.clone())
+    pub fn assign_to_module(&mut self, module_id: &String) {
+        self.assigned_module = Some(module_id.clone())
     }
     pub fn is_assigned_to_module(&self, module: &Box<dyn Module>) -> bool {
         self.assigned_module
             .as_ref()
-            .map(|a| a.eq(module.name()))
+            .map(|a| a.eq(module.id()))
             .unwrap_or(false)
+    }
+}
+
+impl Entity for CrewMember {
+    fn id(&self) -> &String {
+        &self.id
     }
 }
