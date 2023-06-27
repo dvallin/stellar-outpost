@@ -1,8 +1,10 @@
 use nanoid::nanoid;
+use rand::Rng;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use super::game_state::GameState;
 use super::resources::Resources;
 use super::{Entity, Storage};
 
@@ -65,7 +67,12 @@ impl Sector {
         self.sub_sectors.add(sub_sector);
     }
 
-    pub fn finish_turn(&mut self) {}
+    pub fn finish_turn(&mut self, state: &mut GameState) {
+        self.active_mission.as_mut().map(|a| {
+            let mission = &self.missions[&a.mission_id];
+            a.finish_turn(state, mission);
+        });
+    }
 
     pub fn bounds_at_y(&self, y: i32) -> (i32, i32) {
         let mut result = (0, 0);
@@ -165,7 +172,7 @@ impl Entity for Mission {
 
 #[derive(Serialize, Deserialize)]
 pub enum MissionType {
-    Mining,
+    Mining(u16, u16),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -176,9 +183,41 @@ pub struct ActiveMission {
     pub state: ActiveMissionState,
 }
 
+impl ActiveMission {
+    pub fn finish_turn(&mut self, state: &mut GameState, mission: &Mission) {
+        use ActiveMissionState::*;
+        match self.state {
+            AtDestination(turn) => {
+                match mission.mission_type {
+                    MissionType::Mining(min, max) => {
+                        self.resources += Resources::minerals(state.rng.gen_range(min..max).into())
+                    }
+                }
+                self.state = AtDestination(turn + 1);
+            }
+            OutwardTrip(turn) => {
+                if self.distance >= turn {
+                    self.state = AtDestination(0)
+                } else {
+                    self.state = OutwardTrip(turn + 1);
+                }
+            }
+            ReturnTrip(turn) => {
+                if self.distance >= turn {
+                    self.state = Returned
+                } else {
+                    self.state = ReturnTrip(turn + 1);
+                }
+            }
+            Returned => (),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub enum ActiveMissionState {
     AtDestination(u16),
     OutwardTrip(u16),
     ReturnTrip(u16),
+    Returned,
 }

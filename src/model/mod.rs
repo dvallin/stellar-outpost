@@ -12,6 +12,7 @@ use crate::model::{
     },
     sector::SubSector,
 };
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::ValuesMut;
 use std::collections::HashMap;
@@ -35,7 +36,8 @@ pub struct Game {
 
 impl Game {
     pub fn new() -> Self {
-        let state = GameState::new();
+        let mut rng = rand::thread_rng();
+        let state = GameState::new(rng.gen());
         let mut outpost = Outpost::new();
 
         let power_generator = Box::new(PowerGenerator::new("power"));
@@ -82,7 +84,7 @@ impl Game {
         sector.add_subsector(0, -1, SubSector::new(SolarSystem));
 
         use MissionType::*;
-        sector.add_mission(0, -1, Mining);
+        sector.add_mission(0, -1, Mining(5, 10));
 
         Self {
             state,
@@ -93,8 +95,8 @@ impl Game {
 
     pub fn finish_turn(&mut self) {
         self.outpost.finish_turn(&mut self.state);
+        self.sector.finish_turn(&mut self.state);
         self.state.finish_turn();
-        self.sector.finish_turn();
     }
 
     pub fn increment_energy_level(&mut self, module_index: usize) {
