@@ -5,27 +5,29 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CrewMember {
-    pub stats: Stats,
     id: String,
+    pub stats: Stats,
     name: String,
     is_hungry: bool,
     is_thirsty: bool,
     is_tired: bool,
     health: i32,
     assigned_module: Option<String>,
+    assigned_mission: Option<String>,
 }
 
 impl CrewMember {
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: String) -> Self {
         Self {
             id: nanoid!(),
-            name: name.to_string(),
+            stats: Stats::zero(),
+            name,
             is_hungry: false,
             is_thirsty: false,
             is_tired: false,
             health: 5,
             assigned_module: None,
-            stats: Stats::zero(),
+            assigned_mission: None,
         }
     }
 
@@ -93,6 +95,12 @@ impl CrewMember {
     }
     pub fn assign_to_module(&mut self, module_id: &String) {
         self.assigned_module = Some(module_id.clone())
+    }
+    pub fn assigned_mission(&self) -> &Option<String> {
+        &self.assigned_mission
+    }
+    pub fn assign_to_mission(&mut self, mission_id: &String) {
+        self.assigned_mission = Some(mission_id.clone())
     }
     pub fn is_assigned_to_module(&self, module: &Box<dyn Module>) -> bool {
         self.assigned_module

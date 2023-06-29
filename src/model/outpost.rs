@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     game_state::GameState,
     modules::{ModuleEnergyLevelDescription, ModulePriority},
+    sector::ActiveMission,
     stats::Stats,
     Entity, SortableStorage, Storage,
 };
@@ -16,7 +17,17 @@ pub struct Outpost {
     modules: SortableStorage<ModuleBox>,
     crew: Storage<CrewMember>,
     cemetery: Vec<CrewMember>,
+    mission_preparation: Option<MissionPreparation>,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct MissionPreparation {
+    pub crew_ids: Vec<String>,
+    pub mission_id: String,
+    pub turns: u16,
+}
+
+pub struct MissionPreparationIssue {}
 
 #[derive(Serialize, Deserialize)]
 pub struct ModuleBox {
@@ -92,6 +103,8 @@ impl Outpost {
                 food: 10,
                 water: 10,
             },
+
+            mission_preparation: None,
         }
     }
 
@@ -168,12 +181,50 @@ impl Outpost {
         let crew_member = &mut self.crew[crew_member_id];
         crew_member.assign_to_module(module_id);
     }
-
     pub fn crew_of_module(&self, m: &Box<dyn Module>) -> Vec<&CrewMember> {
         self.crew
             .iter()
             .filter(|c| c.is_assigned_to_module(m))
             .collect()
+    }
+
+    /** Mission */
+    pub fn prepare_mission(&mut self, mission_id: &String, turns: u16) {
+        self.mission_preparation = Some(MissionPreparation {
+            mission_id: mission_id.clone(),
+            crew_ids: vec![],
+            turns,
+        });
+    }
+    pub fn prepare_crew_member_for_mission(&mut self, crew_member_id: &String) {
+        if let Some(preparation) = &mut self.mission_preparation {
+            preparation.crew_ids.push(crew_member_id.clone());
+        }
+    }
+    pub fn set_prepare_for_turns(&mut self, turns: u16) {
+        if let Some(preparation) = &mut self.mission_preparation {
+            preparation.turns = turns;
+        }
+    }
+    pub fn start_mission(&mut self) -> ActiveMission {
+        let mut crew = vec![];
+        let preparation = self.mission_preparation.as_ref().unwrap();
+        for crew_member_id in &preparation.crew_ids {
+            let mut crew_member = self.crew.remove(crew_member_id).unwrap();
+            crew_member.assign_to_mission(&preparation.mission_id);
+            crew.push(crew_member)
+        }
+
+        let upkeep_for_turns =
+            Resources::food(preparation.turns.into()) + Resources::water(preparation.turns.into());
+        if upkeep_for_turns < self.resources {
+            // subAssign takes ownership of upkee_for_turns so clone it
+            self.resources -= upkeep_for_turns.clone();
+        }
+
+        let mission = ActiveMission::new(&preparation.mission_id, upkeep_for_turns, crew);
+        self.mission_preparation = None;
+        mission
     }
 
     /** Resources */

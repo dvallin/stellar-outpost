@@ -4,9 +4,10 @@ use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use super::crew::CrewMember;
 use super::game_state::GameState;
 use super::resources::Resources;
-use super::{Entity, Storage};
+use super::{AxialHexCoordinates, Entity, Storage};
 
 #[derive(Hash, PartialEq, Eq)]
 pub struct Coordinates {
@@ -17,6 +18,16 @@ pub struct Coordinates {
 impl Coordinates {
     pub fn new(x: i32, y: i32) -> Self {
         Self { x, y }
+    }
+
+    pub fn hex_distance_to(self, other: Self) -> i32 {
+        let hex: AxialHexCoordinates = self.into();
+        hex.distance_to(other.into())
+    }
+
+    pub fn hex_length(self) -> i32 {
+        let hex: AxialHexCoordinates = self.into();
+        hex.length()
     }
 }
 
@@ -116,6 +127,10 @@ impl Sector {
         self.missions
             .add(Mission::new(sub_sector.id().clone(), mission_type))
     }
+
+    pub fn set_active_mission(&mut self, active_mission: ActiveMission) {
+        self.active_mission = Some(active_mission)
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -181,9 +196,20 @@ pub struct ActiveMission {
     pub resources: Resources,
     pub distance: u16,
     pub state: ActiveMissionState,
+    crew: Storage<CrewMember>,
 }
 
 impl ActiveMission {
+    pub fn new(mission_id: &String, resources: Resources, crew: Vec<CrewMember>) -> Self {
+        Self {
+            mission_id: mission_id.clone(),
+            resources,
+            distance: 0,
+            state: ActiveMissionState::OutwardTrip(0),
+            crew: Storage::from(crew),
+        }
+    }
+
     pub fn finish_turn(&mut self, state: &mut GameState, mission: &Mission) {
         use ActiveMissionState::*;
         match self.state {

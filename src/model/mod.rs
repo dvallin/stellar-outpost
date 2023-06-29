@@ -1,7 +1,7 @@
 use self::{
     game_state::GameState,
     outpost::Outpost,
-    sector::{MissionType, Sector, SectorType},
+    sector::{Coordinates, MissionType, Sector, SectorType},
 };
 use crate::model::modules::Module;
 use crate::model::{
@@ -57,16 +57,16 @@ impl Game {
         farm.set_energy_level(1);
         outpost.add_module(farm);
 
-        let a = CrewMember::new("a");
+        let a = CrewMember::new("a".to_string());
         let a_id = a.id().clone();
         outpost.add_crew_member(a);
 
-        let b = CrewMember::new("b");
+        let b = CrewMember::new("b".to_string());
         let b_id = b.id().clone();
         outpost.add_crew_member(b);
 
-        outpost.add_crew_member(CrewMember::new("c"));
-        outpost.add_crew_member(CrewMember::new("d"));
+        outpost.add_crew_member(CrewMember::new("c".to_string()));
+        outpost.add_crew_member(CrewMember::new("d".to_string()));
 
         outpost.assign_crew_member_to_module(&a_id, &water_id);
         outpost.assign_crew_member_to_module(&b_id, &farm_id);
@@ -113,6 +113,25 @@ impl Game {
         self.outpost
             .assign_crew_member_to_module(&crew_member_id, &module_id)
     }
+    pub fn prepare_mission(&mut self, x: i32, y: i32, mission_index: usize) {
+        let mission_id = self.sector.missions_at(x, y)[mission_index].id();
+        let distance = Coordinates::new(x, y).hex_length();
+        let default_turns = 2 * distance + 3;
+        self.outpost
+            .prepare_mission(&mission_id, default_turns.try_into().unwrap())
+    }
+    pub fn set_prepare_for_turns(&mut self, turns: u16) {
+        self.outpost.set_prepare_for_turns(turns)
+    }
+    pub fn prepare_crew_member_for_mission(&mut self, crew_member_index: usize) {
+        let crew_member_id = self.outpost.crew_member_id_by_index(crew_member_index);
+        self.outpost
+            .prepare_crew_member_for_mission(&crew_member_id)
+    }
+    pub fn start_mission(&mut self) {
+        let active_mission = self.outpost.start_mission();
+        self.sector.set_active_mission(active_mission)
+    }
 }
 
 pub trait Entity {
@@ -133,9 +152,16 @@ impl<T: Entity> Storage<T> {
             data: HashMap::new(),
         }
     }
+    fn from(mut entries: Vec<T>) -> Self {
+        let data = entries.drain(..).map(|e| (e.id().clone(), e)).collect();
+        Self { data }
+    }
 
     pub fn add(&mut self, entity: T) {
         self.data.insert(entity.id().clone(), entity);
+    }
+    pub fn remove(&mut self, id: &String) -> Option<T> {
+        self.data.remove(id)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
@@ -228,5 +254,52 @@ impl<T: Entity> Index<&String> for SortableStorage<T> {
 impl<T: Entity> IndexMut<&String> for SortableStorage<T> {
     fn index_mut(&mut self, id: &String) -> &mut Self::Output {
         self.data.iter_mut().find(|v| v.id() == id).unwrap()
+    }
+}
+
+struct AxialHexCoordinates {
+    pub q: i32,
+    pub r: i32,
+}
+
+use std::ops::{Add, AddAssign, Sub, SubAssign};
+
+impl AxialHexCoordinates {
+    pub fn zero() -> Self {
+        Self { q: 0, r: 0 }
+    }
+
+    pub fn distance_to(self, other: Self) -> i32 {
+        (self - other).length()
+    }
+
+    pub fn length(self) -> i32 {
+        (self.q.abs() + (self.q + self.r).abs() + self.r.abs()) / 2
+    }
+}
+
+impl From<Coordinates> for AxialHexCoordinates {
+    fn from(coordinates: Coordinates) -> Self {
+        let q = coordinates.x - (coordinates.y - (coordinates.y & 1)) / 2;
+        let r = coordinates.y;
+        AxialHexCoordinates { q, r }
+    }
+}
+impl Into<Coordinates> for AxialHexCoordinates {
+    fn into(self) -> Coordinates {
+        let x = self.q + (self.r - (self.r & 1)) / 2;
+        let y = self.r;
+        Coordinates { x, y }
+    }
+}
+
+impl Sub for AxialHexCoordinates {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self {
+        Self {
+            q: self.q - other.q,
+            r: self.r - other.r,
+        }
     }
 }
