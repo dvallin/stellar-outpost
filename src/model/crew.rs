@@ -1,9 +1,11 @@
-use super::{modules::Module, resources::Resources, stats::Stats};
+use super::{modules::Module, resources::Resources, stats::Stats, Entity};
 
+use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CrewMember {
+    id: String,
     pub stats: Stats,
     name: String,
     is_hungry: bool,
@@ -11,18 +13,21 @@ pub struct CrewMember {
     is_tired: bool,
     health: i32,
     assigned_module: Option<String>,
+    assigned_mission: Option<String>,
 }
 
 impl CrewMember {
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: String) -> Self {
         Self {
-            name: name.to_string(),
+            id: nanoid!(),
+            stats: Stats::zero(),
+            name,
             is_hungry: false,
             is_thirsty: false,
             is_tired: false,
             health: 5,
             assigned_module: None,
-            stats: Stats::zero(),
+            assigned_mission: None,
         }
     }
 
@@ -88,13 +93,28 @@ impl CrewMember {
     pub fn assigned_module(&self) -> &Option<String> {
         &self.assigned_module
     }
-    pub fn assign_to_module(&mut self, module_name: &String) {
-        self.assigned_module = Some(module_name.clone())
+    pub fn unassign_from_module(&mut self) {
+        self.assigned_module = None
+    }
+    pub fn assign_to_module(&mut self, module_id: &String) {
+        self.assigned_module = Some(module_id.clone())
+    }
+    pub fn assigned_mission(&self) -> &Option<String> {
+        &self.assigned_mission
+    }
+    pub fn assign_to_mission(&mut self, mission_id: &String) {
+        self.assigned_mission = Some(mission_id.clone())
     }
     pub fn is_assigned_to_module(&self, module: &Box<dyn Module>) -> bool {
         self.assigned_module
             .as_ref()
-            .map(|a| a.eq(module.name()))
+            .map(|a| a.eq(module.id()))
             .unwrap_or(false)
+    }
+}
+
+impl Entity for CrewMember {
+    fn id(&self) -> &String {
+        &self.id
     }
 }

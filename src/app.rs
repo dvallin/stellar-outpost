@@ -1,6 +1,10 @@
+use crate::model::sector::MissionType;
+use crate::model::Entity;
+use crate::model::{
+    crew::CrewMember, modules::Module, resources::Resources, sector::SectorType, Game,
+};
 use catppuccin::{Colour, Flavour};
 use crossterm::event::KeyCode;
-use serde::{Deserialize, Serialize};
 use std::io;
 use tui::{
     backend::Backend,
@@ -9,10 +13,6 @@ use tui::{
     text::{Span, Spans},
     widgets::{Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, Wrap},
     Frame,
-};
-
-use crate::model::{
-    crew::CrewMember, modules::Module, outpost::Outpost, resources::Resources, Game,
 };
 
 pub struct App {
@@ -25,16 +25,20 @@ pub struct App {
 #[derive(Clone)]
 pub enum State {
     GameMenu,
+    Overview,
     // module states
-    Outpost(usize),
+    Modules(usize),
     AssignCrew(usize, usize),
     // crew states
     Crew(usize),
     AssignToModule(usize, usize),
     // research states
     Research,
-    // region states
-    Region,
+    // sector states
+    Sector(i32, i32),
+    SelectMission(i32, i32, usize),
+    MissionPreparation(i32, i32, usize),
+    AssignCrewToMission(usize),
 }
 
 impl State {
@@ -45,73 +49,169 @@ impl State {
         use StateTransition::*;
         match *self {
             GameMenu => vec![PopState(Esc), QuitAndSave(Char('q'))],
-            Outpost(i) => vec![
+            Overview => vec![
                 PushState(Esc, GameMenu),
+                PushState(Char('c'), Crew(0)),
+                PushState(Char('m'), Modules(0)),
+                PushState(Char('r'), Research),
+                PushState(Char('s'), Sector(0, 0)),
+                ApplyDomainEvent(Enter, FinishTurn),
+            ],
+            Modules(i) => vec![
+                PopState(Esc),
+                ReplaceState(Char('c'), Crew(0)),
+                ReplaceState(Char('r'), Research),
+                ReplaceState(Char('s'), Sector(0, 0)),
                 ReplaceState(Tab, Crew(0)),
-                ReplaceState(BackTab, Region),
+                ReplaceState(BackTab, Sector(0, 0)),
                 ReplaceState(
                     Char('j'),
-                    Outpost(circular_index((i as i32) + 1, &app.game.outpost.modules)),
+                    Modules(circular_index(
+                        (i as i32) + 1,
+                        app.game.outpost.modules_len(),
+                    )),
                 ),
                 ReplaceState(
                     Char('k'),
-                    Outpost(circular_index((i as i32) - 1, &app.game.outpost.modules)),
+                    Modules(circular_index(
+                        (i as i32) - 1,
+                        app.game.outpost.modules_len(),
+                    )),
                 ),
-                ApplyDomainEvent(Char('+'), IncrementModuleEnergyLevel, false),
-                ApplyDomainEvent(Char('-'), DecrementModuleEnergyLevel, false),
+                ApplyDomainEvent(Char('+'), IncrementModuleEnergyLevel),
+                ApplyDomainEvent(Char('-'), DecrementModuleEnergyLevel),
                 PushState(Char('a'), AssignCrew(0, i)),
-                ApplyDomainEvent(Enter, FinishTurn, false),
             ],
             Crew(i) => vec![
-                PushState(Esc, GameMenu),
+                PopState(Esc),
+                ReplaceState(Char('m'), Modules(0)),
+                ReplaceState(Char('r'), Research),
+                ReplaceState(Char('s'), Sector(0, 0)),
                 ReplaceState(Tab, Research),
-                ReplaceState(BackTab, Outpost(0)),
+                ReplaceState(BackTab, Modules(0)),
                 ReplaceState(
                     Char('j'),
-                    Crew(circular_index((i as i32) + 1, &app.game.outpost.crew)),
+                    Crew(circular_index((i as i32) + 1, app.game.outpost.crew_len())),
                 ),
                 ReplaceState(
                     Char('k'),
-                    Crew(circular_index((i as i32) - 1, &app.game.outpost.crew)),
+                    Crew(circular_index((i as i32) - 1, app.game.outpost.crew_len())),
                 ),
                 PushState(Char('a'), AssignToModule(i, 0)),
-                ApplyDomainEvent(Enter, FinishTurn, false),
             ],
             Research => vec![
-                PushState(Esc, GameMenu),
-                ReplaceState(Tab, Region),
+                PopState(Esc),
+                ReplaceState(Char('c'), Crew(0)),
+                ReplaceState(Char('m'), Modules(0)),
+                ReplaceState(Char('s'), Sector(0, 0)),
+                ReplaceState(Tab, Sector(0, 0)),
                 ReplaceState(BackTab, Crew(0)),
-                ApplyDomainEvent(Enter, FinishTurn, false),
             ],
-            Region => vec![
-                PushState(Esc, GameMenu),
-                ReplaceState(Tab, Outpost(0)),
+            Sector(x, y) => vec![
+                PopState(Esc),
+                ReplaceState(Char('c'), Crew(0)),
+                ReplaceState(Char('m'), Modules(0)),
+                ReplaceState(Char('r'), Research),
+                ReplaceState(Tab, Modules(0)),
                 ReplaceState(BackTab, Research),
-                ApplyDomainEvent(Enter, FinishTurn, false),
+                ReplaceState(
+                    Char('h'),
+                    Sector(clamp(x - 1, app.game.sector.bounds_at_y(y)), y),
+                ),
+                ReplaceState(
+                    Char('l'),
+                    Sector(clamp(x + 1, app.game.sector.bounds_at_y(y)), y),
+                ),
+                ReplaceState(
+                    Char('j'),
+                    Sector(x, clamp(y + 1, app.game.sector.bounds_at_x(x))),
+                ),
+                ReplaceState(
+                    Char('k'),
+                    Sector(x, clamp(y - 1, app.game.sector.bounds_at_x(x))),
+                ),
+                PushState(Enter, SelectMission(x, y, 0)),
+            ],
+            SelectMission(x, y, m) => vec![
+                PopState(Esc),
+                ReplaceState(
+                    Char('j'),
+                    SelectMission(
+                        x,
+                        y,
+                        circular_index((m as i32) + 1, app.game.sector.missions_at(x, y).len()),
+                    ),
+                ),
+                ReplaceState(
+                    Char('k'),
+                    SelectMission(
+                        x,
+                        y,
+                        circular_index((m as i32) - 1, app.game.sector.missions_at(x, y).len()),
+                    ),
+                ),
+                PushState(Enter, MissionPreparation(x, y, m)),
             ],
             AssignToModule(c, m) => vec![
                 PopState(Esc),
                 ReplaceState(
                     Char('j'),
-                    AssignToModule(c, circular_index((m as i32) + 1, &app.game.outpost.modules)),
+                    AssignToModule(
+                        c,
+                        circular_index((m as i32) + 1, app.game.outpost.modules_len()),
+                    ),
                 ),
                 ReplaceState(
                     Char('k'),
-                    AssignToModule(c, circular_index((m as i32) - 1, &app.game.outpost.modules)),
+                    AssignToModule(
+                        c,
+                        circular_index((m as i32) - 1, app.game.outpost.modules_len()),
+                    ),
                 ),
-                ApplyDomainEvent(Enter, AssignCrewMemberToModule, true),
+                ApplyDomainEvent(Enter, AssignCrewMemberToModule),
             ],
             AssignCrew(c, m) => vec![
                 PopState(Esc),
                 ReplaceState(
                     Char('j'),
-                    AssignCrew(circular_index((c as i32) + 1, &app.game.outpost.crew), m),
+                    AssignCrew(
+                        circular_index((c as i32) + 1, app.game.outpost.crew_len()),
+                        m,
+                    ),
                 ),
                 ReplaceState(
                     Char('k'),
-                    AssignCrew(circular_index((c as i32) - 1, &app.game.outpost.crew), m),
+                    AssignCrew(
+                        circular_index((c as i32) - 1, app.game.outpost.crew_len()),
+                        m,
+                    ),
                 ),
-                ApplyDomainEvent(Enter, AssignCrewMemberToModule, true),
+                ApplyDomainEvent(Enter, AssignCrewMemberToModule),
+            ],
+            MissionPreparation(_, _, _) => vec![
+                PopState(Esc),
+                ApplyDomainEvent(Enter, StartMission),
+                PushState(Char('a'), AssignCrewToMission(0)),
+                ApplyDomainEvent(Char('+'), IncrementPrepareForTurns),
+                ApplyDomainEvent(Char('-'), DecrementPrepareForTurns),
+            ],
+            AssignCrewToMission(c) => vec![
+                PopState(Esc),
+                ReplaceState(
+                    Char('j'),
+                    AssignCrewToMission(circular_index(
+                        (c as i32) + 1,
+                        app.game.outpost.crew_len(),
+                    )),
+                ),
+                ReplaceState(
+                    Char('k'),
+                    AssignCrewToMission(circular_index(
+                        (c as i32) - 1,
+                        app.game.outpost.crew_len(),
+                    )),
+                ),
+                ApplyDomainEvent(Enter, AssignCrewMemberToMission),
             ],
         }
     }
@@ -122,11 +222,15 @@ impl std::string::ToString for State {
         use State::*;
         match *self {
             GameMenu => String::from("Game Menu"),
-            Outpost(_) => String::from("Outpost"),
+            Overview => String::from("Outpost"),
+            Modules(_) => String::from("Modules"),
             Crew(_) => String::from("Crew"),
-            Region => String::from("Region"),
+            Sector(_, _) => String::from("Sector"),
+            SelectMission(_, _, _) => String::from("Select Mission"),
             Research => String::from("Research"),
             AssignToModule(_, _) | AssignCrew(_, _) => String::from("Assign Crew Member to Module"),
+            MissionPreparation(_, _, _) => String::from("Prepare Mission"),
+            AssignCrewToMission(_) => String::from("Assign Crew Member to Mission"),
         }
     }
 }
@@ -137,7 +241,7 @@ enum StateTransition {
     PopState(KeyCode),
     ReplaceState(KeyCode, State),
     QuitAndSave(KeyCode),
-    ApplyDomainEvent(KeyCode, DomainEvent, bool),
+    ApplyDomainEvent(KeyCode, DomainEvent),
 }
 
 #[derive(Clone)]
@@ -146,6 +250,10 @@ enum DomainEvent {
     DecrementModuleEnergyLevel,
     AssignCrewMemberToModule,
     FinishTurn,
+    StartMission,
+    IncrementPrepareForTurns,
+    DecrementPrepareForTurns,
+    AssignCrewMemberToMission,
 }
 
 impl App {
@@ -160,7 +268,7 @@ impl App {
         App {
             game,
             palette: Flavour::Mocha,
-            state: vec![State::Outpost(0)],
+            state: vec![State::Overview],
         }
     }
 
@@ -174,7 +282,7 @@ impl App {
             | QuitAndSave(c)
             | PushState(c, _)
             | ReplaceState(c, _)
-            | ApplyDomainEvent(c, _, _) => c.eq(&code),
+            | ApplyDomainEvent(c, _) => c.eq(&code),
         });
         match transition {
             Some(transition) => match transition {
@@ -202,31 +310,49 @@ impl App {
                     let _ = std::fs::write(output_path, data);
                     Some(Ok(()))
                 }
-                ApplyDomainEvent(_, e, and_pop) => {
+                ApplyDomainEvent(_, e) => {
                     match e {
-                        IncrementModuleEnergyLevel => {
-                            self.current_module().map(|m| m.increment_energy_level());
-                        }
-                        DecrementModuleEnergyLevel => {
-                            self.current_module().map(|m| m.decrement_energy_level());
-                        }
-                        AssignCrewMemberToModule => match self.current_state() {
-                            AssignToModule(c, m) | AssignCrew(c, m) => {
-                                self.game.outpost.assign_crew_member_to_module(*c, *m);
+                        IncrementModuleEnergyLevel => match self.current_state() {
+                            State::Modules(i) => {
+                                self.game.increment_energy_level(*i);
                             }
                             _ => (),
                         },
-                        FinishTurn => {
-                            self.game.finish_turn();
-                        }
+                        DecrementModuleEnergyLevel => match self.current_state() {
+                            State::Modules(i) => {
+                                self.game.decrement_energy_level(*i);
+                            }
+                            _ => (),
+                        },
+                        AssignCrewMemberToModule => match self.current_state() {
+                            AssignToModule(c, m) | AssignCrew(c, m) => {
+                                self.game.assign_crew_member_to_module(*c, *m);
+                                self.state.pop();
+                            }
+                            _ => (),
+                        },
+                        FinishTurn => self.game.finish_turn(),
+                        IncrementPrepareForTurns => self.game.increment_prepare_for_turns(),
+                        DecrementPrepareForTurns => self.game.decrement_prepare_for_turns(),
+                        StartMission => match self.current_state() {
+                            MissionPreparation(x, y, m) => {
+                                let started = self.game.start_mission(*x, *y, *m);
+                                if started {
+                                    self.state.pop();
+                                }
+                            }
+                            _ => (),
+                        },
+                        AssignCrewMemberToMission => match self.current_state() {
+                            AssignCrewToMission(c) => {
+                                self.game.prepare_crew_member_for_mission(*c);
+                                self.state.pop();
+                            }
+                            _ => (),
+                        },
                     }
-                    if *and_pop {
-                        self.state.pop();
-                        if self.state.is_empty() {
-                            Some(Ok(()))
-                        } else {
-                            None
-                        }
+                    if self.state.is_empty() {
+                        Some(Ok(()))
                     } else {
                         None
                     }
@@ -285,16 +411,10 @@ impl App {
         self.state.last().unwrap()
     }
 
-    fn current_module(&mut self) -> Option<&mut Box<dyn Module>> {
-        match self.state.last().unwrap() {
-            State::Outpost(i) => Some(&mut self.game.outpost.modules[*i]),
-            _ => None,
-        }
-    }
-
     fn header<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
         let consumption = self.game.outpost.consumption() + self.game.outpost.crew_upkeep();
         let production = self.game.outpost.production();
+        let resources = self.game.outpost.resources();
         let text = vec![Spans::from(vec![
             Span::styled(
                 format!("turn {}", self.game.state.current_turn),
@@ -322,7 +442,7 @@ impl App {
             Span::styled(
                 format!(
                     "{}({})",
-                    self.game.outpost.resources.minerals.to_string(),
+                    resources.minerals.to_string(),
                     print_i32(production.minerals - consumption.minerals),
                 ),
                 Style::default().fg(to_color(self.palette.sapphire())),
@@ -331,7 +451,7 @@ impl App {
             Span::styled(
                 format!(
                     "{}({})",
-                    self.game.outpost.resources.food.to_string(),
+                    resources.food.to_string(),
                     print_i32(production.food - consumption.food),
                 ),
                 Style::default().fg(to_color(self.palette.green())),
@@ -340,7 +460,7 @@ impl App {
             Span::styled(
                 format!(
                     "{}({})",
-                    self.game.outpost.resources.water.to_string(),
+                    resources.water.to_string(),
                     print_i32(production.water - consumption.water),
                 ),
                 Style::default().fg(to_color(self.palette.blue())),
@@ -366,7 +486,7 @@ impl App {
         let mut state: ListState = ListState::default();
         let mut focused = false;
         match self.current_state() {
-            State::Outpost(s) => {
+            State::Modules(s) => {
                 state.select(Some(*s));
                 focused = true
             }
@@ -376,7 +496,7 @@ impl App {
         let modules: Vec<ListItem> = self
             .game
             .outpost
-            .modules
+            .modules()
             .iter()
             .map(|m| {
                 ListItem::new(Spans::from(vec![Span::styled(
@@ -388,7 +508,7 @@ impl App {
 
         f.render_stateful_widget(
             List::new(modules)
-                .block(self.border("Outpost", focused))
+                .block(self.border("Modules (m)", focused))
                 .highlight_style(
                     Style::default()
                         .add_modifier(Modifier::BOLD)
@@ -419,7 +539,7 @@ impl App {
         let modules: Vec<ListItem> = self
             .game
             .outpost
-            .modules
+            .modules()
             .iter()
             .map(|m| {
                 let mut line = vec![Span::styled(
@@ -464,7 +584,7 @@ impl App {
         let crew: Vec<ListItem> = self
             .game
             .outpost
-            .crew
+            .crew()
             .iter()
             .map(|c| {
                 let mut line = vec![Span::styled(
@@ -490,11 +610,49 @@ impl App {
         )
     }
 
+    fn crew_list_assign_to_mission<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
+        let mut state: ListState = ListState::default();
+        let mut focused = false;
+        match self.current_state() {
+            State::AssignCrewToMission(c) => {
+                state.select(Some(*c));
+                focused = true
+            }
+            _ => (),
+        };
+
+        let crew: Vec<ListItem> = self
+            .game
+            .outpost
+            .crew()
+            .iter()
+            .map(|c| {
+                ListItem::new(Spans::from(vec![Span::styled(
+                    c.name(),
+                    Style::default().fg(to_color(self.palette.text())),
+                )]))
+            })
+            .collect();
+
+        f.render_stateful_widget(
+            List::new(crew)
+                .block(self.border("Assign To Mission", focused))
+                .highlight_style(
+                    Style::default()
+                        .add_modifier(Modifier::BOLD)
+                        .bg(to_color(self.palette.overlay0())),
+                )
+                .highlight_symbol("> "),
+            area,
+            &mut state,
+        )
+    }
+
     fn crew_list<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
         let crew: Vec<ListItem> = self
             .game
             .outpost
-            .crew
+            .crew()
             .iter()
             .map(|m| {
                 ListItem::new(Spans::from(vec![Span::styled(
@@ -516,7 +674,7 @@ impl App {
 
         f.render_stateful_widget(
             List::new(crew)
-                .block(self.border(&String::from("Crew"), focused))
+                .block(self.border(&String::from("Crew (c)"), focused))
                 .highlight_style(
                     Style::default()
                         .add_modifier(Modifier::BOLD)
@@ -531,10 +689,31 @@ impl App {
     fn mission_summary<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
         let mut focused = false;
         match self.current_state() {
-            State::Region => focused = true,
+            State::Sector(_, _) => focused = true,
             _ => (),
         };
-        f.render_widget(self.border(&String::from("Current Mission"), focused), area)
+        let text = match self.game.sector.get_active_mission() {
+            Some(active_mission) => {
+                let mut mission_status = vec![Span::styled(
+                    active_mission.state.to_string(),
+                    Style::default().fg(to_color(self.palette.text())),
+                )];
+                Paragraph::new(vec![
+                    Spans::from(mission_status),
+                    Spans::from(self.resource_string(&active_mission.resources)),
+                ])
+            }
+            None => Paragraph::new(Span::styled(
+                "No mission active",
+                Style::default().fg(to_color(self.palette.text())),
+            )),
+        };
+
+        f.render_widget(
+            text.alignment(Alignment::Center)
+                .block(self.border(&String::from("Sector Map (s)"), focused)),
+            area,
+        );
     }
 
     fn logs<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
@@ -547,10 +726,7 @@ impl App {
             State::Research => focused = true,
             _ => (),
         };
-        f.render_widget(
-            self.border(&String::from("Current Research"), focused),
-            area,
-        )
+        f.render_widget(self.border(&String::from("Research (r)"), focused), area)
     }
 
     fn resource_string(&self, resource: &Resources) -> Vec<Span> {
@@ -593,19 +769,23 @@ impl App {
         use Direction::*;
         use State::*;
         match self.current_state() {
+            Overview => {
+                f.render_widget(self.border(&self.current_state().to_string(), false), area)
+            }
             Crew(i) => {
-                if self.game.outpost.crew.len() <= *i {
+                if self.game.outpost.crew_len() <= *i {
                     return;
                 }
 
-                let crew = &self.game.outpost.crew[*i];
-                let description = self.game.outpost.describe_crew_member(&crew);
+                let crew_id = self.game.outpost.crew_member_id_by_index(*i);
+                let crew_member = self.game.outpost.get_crew_member(&crew_id);
+                let description = self.game.outpost.describe_crew_member(crew_member);
 
                 let health = vec![
                     Span::raw("health: "),
-                    Span::raw(print_percentage(crew.health())),
+                    Span::raw(print_percentage(description.health)),
                 ];
-                let mood = vec![Span::raw("mood: "), Span::raw(print_i32(crew.mood()))];
+                let mood = vec![Span::raw("mood: "), Span::raw(print_i32(description.mood))];
                 let mut upkeep = vec![Span::raw("upkeep: ")];
                 upkeep.append(&mut self.resource_string(&description.upkeep));
 
@@ -665,13 +845,14 @@ impl App {
                     chunks[2],
                 );
             }
-            Outpost(i) => {
-                if self.game.outpost.modules.len() <= *i {
+            Modules(i) => {
+                if self.game.outpost.modules_len() <= *i {
                     return;
                 }
 
-                let module = &self.game.outpost.modules[*i];
-                let description = self.game.outpost.describe_module(&module);
+                let module_id = self.game.outpost.module_id_by_index(*i);
+                let module = self.game.outpost.get_module(&module_id);
+                let description = self.game.outpost.describe_module(module);
 
                 let flow = description.production - description.consumption;
 
@@ -775,17 +956,158 @@ impl App {
                 )
             }
             AssignToModule(c, _) => {
-                let crew_member = &self.game.outpost.crew[*c];
+                let crew_id = self.game.outpost.crew_member_id_by_index(*c);
+                let crew_member: &CrewMember = self.game.outpost.get_crew_member(&crew_id);
                 self.modules_list_assign_to_module(f, crew_member, area);
             }
             AssignCrew(_, m) => {
-                let module = &self.game.outpost.modules[*m];
+                let module_id = self.game.outpost.module_id_by_index(*m);
+                let module = self.game.outpost.get_module(&module_id);
                 self.crew_list_assign_to_module(f, module, area);
             }
             Research => {
                 f.render_widget(self.border(&self.current_state().to_string(), false), area)
             }
-            Region => f.render_widget(self.border(&self.current_state().to_string(), false), area),
+            Sector(x, y) => {
+                use SectorType::*;
+                let mut state: ListState = ListState::default();
+                let mut regions: Vec<ListItem> = vec![];
+                for (coordinates, sector) in self.game.sector.sub_sectors_map() {
+                    if coordinates.x == *x && coordinates.y == *y {
+                        state.select(Some(regions.len()));
+                    }
+                    let sector_name = match sector.sector_type {
+                        EmptySpace => "empty space",
+                        SolarSystem => "solar system",
+                        GasCloud => "gas cloud",
+                        StellarRift => "stellar rift",
+                    };
+                    regions.push(ListItem::new(Spans::from(vec![Span::styled(
+                        format!("({}, {}) {}", coordinates.x, coordinates.y, sector_name),
+                        Style::default().fg(to_color(self.palette.text())),
+                    )])))
+                }
+                let chunks = Layout::default()
+                    .direction(Vertical)
+                    .constraints(vec![Percentage(80), Percentage(20)])
+                    .split(area);
+
+                f.render_stateful_widget(
+                    List::new(regions)
+                        .block(self.border(&String::from("Sector Map"), true))
+                        .highlight_style(
+                            Style::default()
+                                .add_modifier(Modifier::BOLD)
+                                .bg(to_color(self.palette.overlay0())),
+                        )
+                        .highlight_symbol("> "),
+                    chunks[0],
+                    &mut state,
+                );
+
+                let missions: Vec<ListItem> = self
+                    .game
+                    .sector
+                    .missions_at(*x, *y)
+                    .iter()
+                    .map(|_m| {
+                        ListItem::new(Spans::from(vec![Span::styled(
+                            "Mining Mission",
+                            Style::default().fg(to_color(self.palette.text())),
+                        )]))
+                    })
+                    .collect();
+
+                f.render_widget(
+                    List::new(missions).block(self.border(&String::from("Missions"), false)),
+                    chunks[1],
+                );
+            }
+            SelectMission(x, y, m) => {
+                use SectorType::*;
+                let mut map_state: ListState = ListState::default();
+                let mut regions: Vec<ListItem> = vec![];
+                for (coordinates, sector) in &self.game.sector.sub_sectors_map() {
+                    if coordinates.x == *x && coordinates.y == *y {
+                        map_state.select(Some(regions.len()));
+                    }
+                    let sector_name = match sector.sector_type {
+                        EmptySpace => "empty space",
+                        SolarSystem => "solar system",
+                        GasCloud => "gas cloud",
+                        StellarRift => "stellar rift",
+                    };
+                    regions.push(ListItem::new(Spans::from(vec![Span::styled(
+                        format!("({}, {}) {}", coordinates.x, coordinates.y, sector_name),
+                        Style::default().fg(to_color(self.palette.text())),
+                    )])))
+                }
+                let chunks = Layout::default()
+                    .direction(Vertical)
+                    .constraints(vec![Percentage(80), Percentage(20)])
+                    .split(area);
+
+                f.render_stateful_widget(
+                    List::new(regions)
+                        .block(self.border(&String::from("Sector Map"), false))
+                        .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                        .highlight_symbol("> "),
+                    chunks[0],
+                    &mut map_state,
+                );
+
+                let missions: Vec<ListItem> = self
+                    .game
+                    .sector
+                    .missions_at(*x, *y)
+                    .iter()
+                    .map(|_m| {
+                        ListItem::new(Spans::from(vec![Span::styled(
+                            "Mining Mission",
+                            Style::default().fg(to_color(self.palette.text())),
+                        )]))
+                    })
+                    .collect();
+
+                let mut mission_state: ListState = ListState::default();
+                mission_state.select(Some(*m));
+
+                f.render_stateful_widget(
+                    List::new(missions)
+                        .block(self.border(&String::from("Missions"), true))
+                        .highlight_style(
+                            Style::default()
+                                .add_modifier(Modifier::BOLD)
+                                .bg(to_color(self.palette.overlay0())),
+                        )
+                        .highlight_symbol("> "),
+                    chunks[1],
+                    &mut mission_state,
+                );
+            }
+            MissionPreparation(x, y, m) => {
+                let mission_id = self.game.sector.missions_at(*x, *y)[*m].id();
+                let mission = self.game.sector.get_mission(mission_id);
+                let preparation = self.game.outpost.describe_mission_preparation(&mission);
+
+                let mission_description = Span::raw(match preparation.mission.mission_type {
+                    MissionType::Mining(min, max) => format!("mission: Mining {} {}", min, max),
+                });
+                let turn_description = format!("turns: Turns {}", preparation.turns);
+
+                f.render_widget(
+                    Paragraph::new(vec![
+                        Spans::from(mission_description),
+                        Spans::from(turn_description),
+                        Spans::from(self.resource_string(&preparation.cost)),
+                    ])
+                    .block(self.border("Mission", false)),
+                    area,
+                );
+            }
+            AssignCrewToMission(_) => {
+                self.crew_list_assign_to_mission(f, area);
+            }
         }
     }
 }
@@ -800,12 +1122,15 @@ fn print_i32(v: i32) -> String {
         v.to_string()
     }
 }
-fn circular_index<T>(index: i32, arr: &Vec<T>) -> usize {
-    if arr.len() == 0 {
+fn circular_index(index: i32, len: usize) -> usize {
+    if len == 0 {
         0
     } else {
-        (((index % arr.len() as i32) + arr.len() as i32) % arr.len() as i32) as usize
+        (((index % len as i32) + len as i32) % len as i32) as usize
     }
+}
+fn clamp(index: i32, bounds: (i32, i32)) -> i32 {
+    std::cmp::min(std::cmp::max(index, bounds.0), bounds.1)
 }
 
 fn to_color(value: Colour) -> Color {

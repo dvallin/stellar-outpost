@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 
 use serde::{Deserialize, Serialize};
 
@@ -122,5 +122,19 @@ impl SubAssign for Resources {
             food: std::cmp::max(self.food - other.food, 0),
             water: std::cmp::max(self.water - other.water, 0),
         };
+    }
+}
+
+impl Mul<i32> for Resources {
+    type Output = Self;
+
+    fn mul(self, rhs: i32) -> Self {
+        Self {
+            energy: rhs * self.energy,
+            living_space: rhs * self.living_space,
+            minerals: rhs * self.minerals,
+            food: rhs * self.food,
+            water: rhs * self.water,
+        }
     }
 }

@@ -1,34 +1,65 @@
 use crate::model::crew::CrewMember;
-use crate::model::modules::living_quarters::LivingQuarters;
-use crate::model::modules::power_generator::PowerGenerator;
 use crate::model::modules::Module;
 use crate::model::resources::Resources;
 use serde::{Deserialize, Serialize};
 
 use super::{
     game_state::GameState,
-    modules::{
-        farm::Farm, water_extractor::WaterExtractor, ModuleEnergyLevelDescription, ModulePriority,
-    },
+    modules::{ModuleEnergyLevelDescription, ModulePriority},
+    sector::{ActiveMission, Mission},
     stats::Stats,
+    Entity, SortableStorage, Storage,
 };
 
 #[derive(Serialize, Deserialize)]
 pub struct Outpost {
-    pub resources: Resources,
-    pub modules: Vec<Box<dyn Module>>,
-    pub crew: Vec<CrewMember>,
-    pub cemetery: Vec<CrewMember>,
+    resources: Resources,
+    modules: SortableStorage<ModuleBox>,
+    crew: Storage<CrewMember>,
+    cemetery: Vec<CrewMember>,
+    mission_preparation: MissionPreparation,
 }
 
-pub struct CrewDescription<'a> {
+#[derive(Serialize, Deserialize)]
+pub struct MissionPreparation {
+    pub crew_ids: Vec<String>,
+    pub turns: u16,
+}
+
+pub struct MissionPreparationIssue {}
+
+#[derive(Serialize, Deserialize)]
+pub struct ModuleBox {
+    module: Box<dyn Module>,
+}
+
+impl ModuleBox {
+    pub fn unwrap(&self) -> &Box<dyn Module> {
+        &self.module
+    }
+    pub fn unwrap_mut(&mut self) -> &mut Box<dyn Module> {
+        &mut self.module
+    }
+    pub fn new(module: Box<dyn Module>) -> Self {
+        Self { module }
+    }
+}
+
+impl Entity for ModuleBox {
+    fn id(&self) -> &String {
+        self.module.id()
+    }
+}
+
+pub struct CrewMemberDescription<'a> {
     pub name: &'a String,
     pub mood: i32,
+    pub health: i32,
     pub stats: &'a Stats,
     pub upkeep: Resources,
     pub assignment: Option<CrewAssignmentDescription<'a>>,
 }
-impl<'a> CrewDescription<'a> {
+impl<'a> CrewMemberDescription<'a> {
     pub fn assigned_module_name(&self) -> String {
         match &self.assignment {
             Some(a) => a.module_name.to_string(),
@@ -43,6 +74,18 @@ impl<'a> CrewDescription<'a> {
         };
         bonus.clone()
     }
+}
+
+pub struct MissionPreparationDescription<'a> {
+    pub turns: u16,
+    pub crew: Vec<MissionPreparationCrewMemberDescription>,
+    pub mission: &'a Mission,
+    pub cost: Resources,
+}
+
+pub struct MissionPreparationCrewMemberDescription {
+    pub name: String,
+    pub upkeep: Resources,
 }
 
 pub struct CrewAssignmentDescription<'a> {
@@ -60,10 +103,10 @@ pub struct ModuleDescription<'a> {
 
 impl Outpost {
     pub fn new() -> Self {
-        let mut s = Self {
-            crew: vec![],
+        Self {
+            crew: Storage::new(),
             cemetery: vec![],
-            modules: vec![],
+            modules: SortableStorage::new(),
 
             resources: Resources {
                 energy: 0,
@@ -72,69 +115,29 @@ impl Outpost {
                 food: 10,
                 water: 10,
             },
-        };
 
-        let power_generator = Box::new(PowerGenerator::new("power"));
-        s.add_module(power_generator);
-
-        let mut quarters = Box::new(LivingQuarters::new("quarters"));
-        quarters.set_energy_level(2);
-        s.add_module(quarters);
-
-        let mut water = Box::new(WaterExtractor::new("water"));
-        water.set_energy_level(1);
-        s.add_module(water);
-
-        let mut farm = Box::new(Farm::new("farm"));
-        farm.set_energy_level(1);
-        s.add_module(farm);
-
-        s.add_crew_member(CrewMember::new("a"));
-        s.add_crew_member(CrewMember::new("b"));
-        s.add_crew_member(CrewMember::new("c"));
-        s.add_crew_member(CrewMember::new("d"));
-
-        s.assign_crew_member_to_module(0, 2);
-        s.assign_crew_member_to_module(1, 3);
-
-        s
-    }
-
-    pub fn add_crew_member(&mut self, crew_member: CrewMember) {
-        self.crew.push(crew_member)
-    }
-    pub fn describe_crew_member<'a>(&'a self, crew: &'a CrewMember) -> CrewDescription<'a> {
-        CrewDescription {
-            name: crew.name(),
-            mood: crew.mood(),
-            stats: crew.stats(),
-            upkeep: crew.upkeep(),
-            assignment: crew
-                .assigned_module()
-                .as_ref()
-                .and_then(|a| self.module(&a))
-                .map(|m: &Box<dyn Module>| CrewAssignmentDescription {
-                    module_name: m.name(),
-                    production_bonus: m.production_bonus(crew),
-                }),
+            mission_preparation: MissionPreparation {
+                crew_ids: vec![],
+                turns: 0,
+            },
         }
     }
 
+    /** Modules */
     pub fn add_module(&mut self, module: Box<dyn Module>) {
-        self.modules.push(module);
+        self.modules.add(ModuleBox::new(module));
     }
-    fn sort_modules_asc_by_priority(&mut self) {
-        self.modules.sort_by(|a, b| {
-            let priority_cmp = a.priority().cmp(&b.priority());
-            match priority_cmp {
-                std::cmp::Ordering::Equal => a.consumption().cmp(&b.consumption()),
-                std::cmp::Ordering::Less => std::cmp::Ordering::Greater,
-                std::cmp::Ordering::Greater => std::cmp::Ordering::Less,
-            }
-        });
+    pub fn module_id_by_index(&self, module_index: usize) -> String {
+        self.modules.id_by_index(module_index).unwrap().clone()
     }
-    pub fn module(&self, module_name: &String) -> Option<&Box<dyn Module>> {
-        self.modules.iter().find(|m| module_name.eq(m.name()))
+    pub fn get_module(&self, module_id: &String) -> &Box<dyn Module> {
+        self.modules[module_id].unwrap()
+    }
+    pub fn modules_len(&self) -> usize {
+        self.modules.len()
+    }
+    pub fn modules(&self) -> Vec<&Box<dyn Module>> {
+        self.modules.iter().map(|a| a.unwrap()).collect()
     }
     pub fn describe_module<'a>(&'a self, module: &'a Box<dyn Module>) -> ModuleDescription<'a> {
         let crew = self.crew_of_module(module);
@@ -146,7 +149,180 @@ impl Outpost {
             energy_levels: module.energy_levels(&crew),
         }
     }
+    pub fn increment_energy_level(&mut self, module_id: &String) {
+        self.modules[module_id]
+            .unwrap_mut()
+            .increment_energy_level()
+    }
+    pub fn decrement_energy_level(&mut self, module_id: &String) {
+        self.modules[module_id]
+            .unwrap_mut()
+            .decrement_energy_level()
+    }
 
+    /** Crew */
+    pub fn add_crew_member(&mut self, crew_member: CrewMember) {
+        self.crew.add(crew_member)
+    }
+    pub fn crew_member_id_by_index(&self, crew_member_index: usize) -> String {
+        self.crew.id_by_index(crew_member_index).unwrap().clone()
+    }
+    pub fn get_crew_member(&self, crew_member_id: &String) -> &CrewMember {
+        &self.crew[crew_member_id]
+    }
+    pub fn describe_crew_member<'a>(
+        &'a self,
+        crew_member: &'a CrewMember,
+    ) -> CrewMemberDescription<'a> {
+        CrewMemberDescription {
+            name: crew_member.name(),
+            mood: crew_member.mood(),
+            health: crew_member.health(),
+            stats: crew_member.stats(),
+            upkeep: crew_member.upkeep(),
+            assignment: crew_member
+                .assigned_module()
+                .as_ref()
+                .map(|a| self.get_module(&a))
+                .map(|m: &Box<dyn Module>| CrewAssignmentDescription {
+                    module_name: m.name(),
+                    production_bonus: m.production_bonus(crew_member),
+                }),
+        }
+    }
+    pub fn crew(&self) -> Vec<&CrewMember> {
+        self.crew.iter().collect()
+    }
+    pub fn crew_len(&self) -> usize {
+        self.crew.len()
+    }
+    pub fn assign_crew_member_to_module(&mut self, crew_member_id: &String, module_id: &String) {
+        let crew_member = &mut self.crew[crew_member_id];
+        crew_member.assign_to_module(module_id);
+    }
+    pub fn crew_of_module(&self, m: &Box<dyn Module>) -> Vec<&CrewMember> {
+        self.crew
+            .iter()
+            .filter(|c| c.is_assigned_to_module(m))
+            .collect()
+    }
+
+    /** Mission */
+    pub fn describe_mission_preparation<'a>(
+        &'a self,
+        mission: &'a Mission,
+    ) -> MissionPreparationDescription<'a> {
+        let crew = self.describe_mission_preparation_crew();
+        let cost = self.mission_cost();
+        MissionPreparationDescription {
+            turns: self.mission_preparation.turns,
+            crew,
+            mission,
+            cost,
+        }
+    }
+    pub fn describe_mission_preparation_crew(
+        &self,
+    ) -> Vec<MissionPreparationCrewMemberDescription> {
+        self.mission_preparation
+            .crew_ids
+            .iter()
+            .map(|crew_member_id| {
+                let crew_member = &self.crew[crew_member_id];
+                MissionPreparationCrewMemberDescription {
+                    name: crew_member.name().clone(),
+                    upkeep: crew_member.upkeep(),
+                }
+            })
+            .collect()
+    }
+    pub fn prepare_crew_member_for_mission(&mut self, crew_member_id: &String) {
+        self.mission_preparation
+            .crew_ids
+            .push(crew_member_id.clone());
+    }
+    pub fn increment_prepare_for_turns(&mut self) {
+        self.mission_preparation.turns += 1;
+    }
+    pub fn decrement_prepare_for_turns(&mut self) {
+        if self.mission_preparation.turns > 0 {
+            self.mission_preparation.turns -= 1;
+        }
+    }
+    pub fn mission_cost(&self) -> Resources {
+        let mut cost = self
+            .mission_preparation
+            .crew_ids
+            .iter()
+            .map(|crew_member_id| {
+                let crew_member = &self.crew[crew_member_id];
+                crew_member.upkeep() * i32::from(self.mission_preparation.turns)
+            })
+            .reduce(|a, b| a + b)
+            .unwrap_or_else(Resources::zero);
+        cost.living_space = 0;
+        cost.energy = 0;
+        cost
+    }
+    pub fn start_mission(&mut self, mission: &Mission) -> Option<ActiveMission> {
+        let cost = self.mission_cost();
+
+        // pay mission cost if possible
+        if cost > self.resources {
+            return None;
+        }
+        self.resources -= cost.clone();
+
+        // remove crew from outpost and assign to mission
+        let mut crew = vec![];
+        for crew_member_id in &self.mission_preparation.crew_ids {
+            let mut crew_member = self.crew.remove(crew_member_id).unwrap();
+            crew_member.unassign_from_module();
+            crew_member.assign_to_mission(mission.id());
+            crew.push(crew_member)
+        }
+
+        // create mission and reset preparation
+        let active_mission = ActiveMission::new(mission.id(), cost, crew);
+        self.mission_preparation = MissionPreparation {
+            crew_ids: vec![],
+            turns: 0,
+        };
+        Some(active_mission)
+    }
+
+    /** Resources */
+    pub fn resources(&self) -> &Resources {
+        &self.resources
+    }
+    pub fn production(&self) -> Resources {
+        self.modules
+            .iter()
+            .map(|m| m.unwrap())
+            .map(|m| m.production(&self.crew_of_module(m)))
+            .reduce(|a, b| a + b)
+            .unwrap_or_else(Resources::zero)
+    }
+    pub fn consumption(&self) -> Resources {
+        self.modules
+            .iter()
+            .map(|m| m.unwrap())
+            .map(|m| m.consumption())
+            .reduce(|a, b| a + b)
+            .unwrap_or_else(Resources::zero)
+    }
+    pub fn crew_upkeep(&self) -> Resources {
+        let len = self.crew.len() as i32;
+        Resources {
+            energy: 0,
+            living_space: len,
+            minerals: 0,
+            food: len,
+            water: len,
+        }
+    }
+
+    /** Finish turn */
     pub fn finish_turn(&mut self, _state: &mut GameState) {
         self.store_production();
 
@@ -162,48 +338,21 @@ impl Outpost {
         self.support_crew();
     }
 
-    pub fn assign_crew_member_to_module(&mut self, crew_index: usize, module_index: usize) {
-        let module = &self.modules[module_index];
-        let crew = &mut self.crew[crew_index];
-        crew.assign_to_module(module.name());
-    }
-
-    pub fn consumption(&self) -> Resources {
-        self.modules
-            .iter()
-            .map(|m| m.consumption())
-            .reduce(|a, b| a + b)
-            .unwrap_or_else(Resources::zero)
-    }
-
-    pub fn crew_of_module(&self, m: &Box<dyn Module>) -> Vec<&CrewMember> {
-        self.crew
-            .iter()
-            .filter(|c| c.is_assigned_to_module(m))
-            .collect()
-    }
-
-    pub fn production(&self) -> Resources {
-        self.modules
-            .iter()
-            .map(|m| m.production(&self.crew_of_module(m)))
-            .reduce(|a, b| a + b)
-            .unwrap_or_else(Resources::zero)
+    fn sort_modules_asc_by_priority(&mut self) {
+        self.modules.sort_by(|a, b| {
+            let left = a.unwrap();
+            let right = b.unwrap();
+            let priority_cmp = left.priority().cmp(&right.priority());
+            match priority_cmp {
+                std::cmp::Ordering::Equal => left.consumption().cmp(&right.consumption()),
+                std::cmp::Ordering::Less => std::cmp::Ordering::Greater,
+                std::cmp::Ordering::Greater => std::cmp::Ordering::Less,
+            }
+        });
     }
 
     fn store_production(&mut self) {
         self.resources += self.production();
-    }
-
-    pub fn crew_upkeep(&self) -> Resources {
-        let len = self.crew.len() as i32;
-        Resources {
-            energy: 0,
-            living_space: len,
-            minerals: 0,
-            food: len,
-            water: len,
-        }
     }
 
     fn support_crew(&mut self) {
@@ -260,15 +409,16 @@ impl Outpost {
         self.sort_modules_asc_by_priority();
         for m in self.modules.iter_mut() {
             // find out if this module is a relevant consumer
+            let module = m.unwrap_mut();
             let delta = consumption.clone() - self.resources.clone();
-            let consumption = m.consumption();
+            let consumption = module.consumption();
             let module_is_relevant = (delta.energy > 0 && consumption.energy > 0)
                 || (delta.living_space > 0 && consumption.living_space > 0)
                 || (delta.minerals > 0 && consumption.minerals > 0)
                 || (delta.food > 0 && consumption.food > 0)
                 || (delta.water > 0 && consumption.water > 0);
             if module_is_relevant {
-                m.decrement_energy_level();
+                module.decrement_energy_level();
                 return;
             }
         }

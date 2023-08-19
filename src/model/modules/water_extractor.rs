@@ -2,8 +2,10 @@ use crate::model::crew::CrewMember;
 use crate::model::modules::Module;
 use crate::model::modules::ModulePriority;
 use crate::model::resources::Resources;
+use crate::model::Entity;
 use core::cmp::max;
 use core::cmp::min;
+use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 
 use super::ModuleAssignmentDescription;
@@ -11,6 +13,7 @@ use super::ModuleEnergyLevelDescription;
 
 #[derive(Serialize, Deserialize)]
 pub struct WaterExtractor {
+    id: String,
     energy_level: i32,
     name: String,
 }
@@ -18,9 +21,16 @@ pub struct WaterExtractor {
 impl WaterExtractor {
     pub fn new(name: &str) -> Self {
         Self {
+            id: nanoid!(),
             energy_level: 1,
             name: name.to_string(),
         }
+    }
+}
+
+impl Entity for WaterExtractor {
+    fn id(&self) -> &String {
+        &self.id
     }
 }
 
