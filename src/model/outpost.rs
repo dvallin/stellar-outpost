@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     game_state::GameState,
     modules::{ModuleEnergyLevelDescription, ModulePriority},
-    sector::ActiveMission,
+    sector::{ActiveMission, Mission},
     stats::Stats,
     Entity, SortableStorage, Storage,
 };
@@ -17,13 +17,12 @@ pub struct Outpost {
     modules: SortableStorage<ModuleBox>,
     crew: Storage<CrewMember>,
     cemetery: Vec<CrewMember>,
-    mission_preparation: Option<MissionPreparation>,
+    mission_preparation: MissionPreparation,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct MissionPreparation {
     pub crew_ids: Vec<String>,
-    pub mission_id: String,
     pub turns: u16,
 }
 
@@ -52,14 +51,15 @@ impl Entity for ModuleBox {
     }
 }
 
-pub struct CrewDescription<'a> {
+pub struct CrewMemberDescription<'a> {
     pub name: &'a String,
     pub mood: i32,
+    pub health: i32,
     pub stats: &'a Stats,
     pub upkeep: Resources,
     pub assignment: Option<CrewAssignmentDescription<'a>>,
 }
-impl<'a> CrewDescription<'a> {
+impl<'a> CrewMemberDescription<'a> {
     pub fn assigned_module_name(&self) -> String {
         match &self.assignment {
             Some(a) => a.module_name.to_string(),
@@ -74,6 +74,18 @@ impl<'a> CrewDescription<'a> {
         };
         bonus.clone()
     }
+}
+
+pub struct MissionPreparationDescription<'a> {
+    pub turns: u16,
+    pub crew: Vec<MissionPreparationCrewMemberDescription>,
+    pub mission: &'a Mission,
+    pub cost: Resources,
+}
+
+pub struct MissionPreparationCrewMemberDescription {
+    pub name: String,
+    pub upkeep: Resources,
 }
 
 pub struct CrewAssignmentDescription<'a> {
@@ -104,7 +116,10 @@ impl Outpost {
                 water: 10,
             },
 
-            mission_preparation: None,
+            mission_preparation: MissionPreparation {
+                crew_ids: vec![],
+                turns: 0,
+            },
         }
     }
 
@@ -152,22 +167,26 @@ impl Outpost {
     pub fn crew_member_id_by_index(&self, crew_member_index: usize) -> String {
         self.crew.id_by_index(crew_member_index).unwrap().clone()
     }
-    pub fn get_crew_member(&self, crew_id: &String) -> &CrewMember {
-        &self.crew[crew_id]
+    pub fn get_crew_member(&self, crew_member_id: &String) -> &CrewMember {
+        &self.crew[crew_member_id]
     }
-    pub fn describe_crew_member<'a>(&'a self, crew: &'a CrewMember) -> CrewDescription<'a> {
-        CrewDescription {
-            name: crew.name(),
-            mood: crew.mood(),
-            stats: crew.stats(),
-            upkeep: crew.upkeep(),
-            assignment: crew
+    pub fn describe_crew_member<'a>(
+        &'a self,
+        crew_member: &'a CrewMember,
+    ) -> CrewMemberDescription<'a> {
+        CrewMemberDescription {
+            name: crew_member.name(),
+            mood: crew_member.mood(),
+            health: crew_member.health(),
+            stats: crew_member.stats(),
+            upkeep: crew_member.upkeep(),
+            assignment: crew_member
                 .assigned_module()
                 .as_ref()
                 .map(|a| self.get_module(&a))
                 .map(|m: &Box<dyn Module>| CrewAssignmentDescription {
                     module_name: m.name(),
-                    production_bonus: m.production_bonus(crew),
+                    production_bonus: m.production_bonus(crew_member),
                 }),
         }
     }
@@ -189,42 +208,87 @@ impl Outpost {
     }
 
     /** Mission */
-    pub fn prepare_mission(&mut self, mission_id: &String, turns: u16) {
-        self.mission_preparation = Some(MissionPreparation {
-            mission_id: mission_id.clone(),
-            crew_ids: vec![],
-            turns,
-        });
+    pub fn describe_mission_preparation<'a>(
+        &'a self,
+        mission: &'a Mission,
+    ) -> MissionPreparationDescription<'a> {
+        let crew = self.describe_mission_preparation_crew();
+        let cost = self.mission_cost();
+        MissionPreparationDescription {
+            turns: self.mission_preparation.turns,
+            crew,
+            mission,
+            cost,
+        }
+    }
+    pub fn describe_mission_preparation_crew(
+        &self,
+    ) -> Vec<MissionPreparationCrewMemberDescription> {
+        self.mission_preparation
+            .crew_ids
+            .iter()
+            .map(|crew_member_id| {
+                let crew_member = &self.crew[crew_member_id];
+                MissionPreparationCrewMemberDescription {
+                    name: crew_member.name().clone(),
+                    upkeep: crew_member.upkeep(),
+                }
+            })
+            .collect()
     }
     pub fn prepare_crew_member_for_mission(&mut self, crew_member_id: &String) {
-        if let Some(preparation) = &mut self.mission_preparation {
-            preparation.crew_ids.push(crew_member_id.clone());
+        self.mission_preparation
+            .crew_ids
+            .push(crew_member_id.clone());
+    }
+    pub fn increment_prepare_for_turns(&mut self) {
+        self.mission_preparation.turns += 1;
+    }
+    pub fn decrement_prepare_for_turns(&mut self) {
+        if self.mission_preparation.turns > 0 {
+            self.mission_preparation.turns -= 1;
         }
     }
-    pub fn set_prepare_for_turns(&mut self, turns: u16) {
-        if let Some(preparation) = &mut self.mission_preparation {
-            preparation.turns = turns;
-        }
+    pub fn mission_cost(&self) -> Resources {
+        let mut cost = self
+            .mission_preparation
+            .crew_ids
+            .iter()
+            .map(|crew_member_id| {
+                let crew_member = &self.crew[crew_member_id];
+                crew_member.upkeep() * i32::from(self.mission_preparation.turns)
+            })
+            .reduce(|a, b| a + b)
+            .unwrap_or_else(Resources::zero);
+        cost.living_space = 0;
+        cost.energy = 0;
+        cost
     }
-    pub fn start_mission(&mut self) -> ActiveMission {
+    pub fn start_mission(&mut self, mission: &Mission) -> Option<ActiveMission> {
+        let cost = self.mission_cost();
+
+        // pay mission cost if possible
+        if cost > self.resources {
+            return None;
+        }
+        self.resources -= cost.clone();
+
+        // remove crew from outpost and assign to mission
         let mut crew = vec![];
-        let preparation = self.mission_preparation.as_ref().unwrap();
-        for crew_member_id in &preparation.crew_ids {
+        for crew_member_id in &self.mission_preparation.crew_ids {
             let mut crew_member = self.crew.remove(crew_member_id).unwrap();
-            crew_member.assign_to_mission(&preparation.mission_id);
+            crew_member.unassign_from_module();
+            crew_member.assign_to_mission(mission.id());
             crew.push(crew_member)
         }
 
-        let upkeep_for_turns =
-            Resources::food(preparation.turns.into()) + Resources::water(preparation.turns.into());
-        if upkeep_for_turns < self.resources {
-            // subAssign takes ownership of upkee_for_turns so clone it
-            self.resources -= upkeep_for_turns.clone();
-        }
-
-        let mission = ActiveMission::new(&preparation.mission_id, upkeep_for_turns, crew);
-        self.mission_preparation = None;
-        mission
+        // create mission and reset preparation
+        let active_mission = ActiveMission::new(mission.id(), cost, crew);
+        self.mission_preparation = MissionPreparation {
+            crew_ids: vec![],
+            turns: 0,
+        };
+        Some(active_mission)
     }
 
     /** Resources */

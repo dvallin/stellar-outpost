@@ -93,6 +93,9 @@ impl CrewMember {
     pub fn assigned_module(&self) -> &Option<String> {
         &self.assigned_module
     }
+    pub fn unassign_from_module(&mut self) {
+        self.assigned_module = None
+    }
     pub fn assign_to_module(&mut self, module_id: &String) {
         self.assigned_module = Some(module_id.clone())
     }

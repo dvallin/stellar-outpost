@@ -16,6 +16,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::ValuesMut;
 use std::collections::HashMap;
+use std::ops::Sub;
 use std::ops::{Index, IndexMut};
 use std::slice::IterMut;
 
@@ -113,24 +114,27 @@ impl Game {
         self.outpost
             .assign_crew_member_to_module(&crew_member_id, &module_id)
     }
-    pub fn prepare_mission(&mut self, x: i32, y: i32, mission_index: usize) {
-        let mission_id = self.sector.missions_at(x, y)[mission_index].id();
-        let distance = Coordinates::new(x, y).hex_length();
-        let default_turns = 2 * distance + 3;
-        self.outpost
-            .prepare_mission(&mission_id, default_turns.try_into().unwrap())
+    pub fn increment_prepare_for_turns(&mut self) {
+        self.outpost.increment_prepare_for_turns()
     }
-    pub fn set_prepare_for_turns(&mut self, turns: u16) {
-        self.outpost.set_prepare_for_turns(turns)
+    pub fn decrement_prepare_for_turns(&mut self) {
+        self.outpost.decrement_prepare_for_turns()
     }
     pub fn prepare_crew_member_for_mission(&mut self, crew_member_index: usize) {
         let crew_member_id = self.outpost.crew_member_id_by_index(crew_member_index);
         self.outpost
             .prepare_crew_member_for_mission(&crew_member_id)
     }
-    pub fn start_mission(&mut self) {
-        let active_mission = self.outpost.start_mission();
-        self.sector.set_active_mission(active_mission)
+    pub fn start_mission(&mut self, x: i32, y: i32, mission_index: usize) -> bool {
+        let mission_id = self.sector.missions_at(x, y)[mission_index].id();
+        if let Some(active_mission) = self
+            .outpost
+            .start_mission(self.sector.get_mission(&mission_id))
+        {
+            self.sector.set_active_mission(active_mission);
+            return true;
+        }
+        return false;
     }
 }
 
@@ -261,8 +265,6 @@ struct AxialHexCoordinates {
     pub q: i32,
     pub r: i32,
 }
-
-use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 impl AxialHexCoordinates {
     pub fn zero() -> Self {

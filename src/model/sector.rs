@@ -115,6 +115,14 @@ impl Sector {
             .collect()
     }
 
+    pub fn get_mission(&self, mission_id: &String) -> &Mission {
+        &self.missions[mission_id]
+    }
+
+    pub fn get_active_mission(&self) -> &Option<ActiveMission> {
+        &self.active_mission
+    }
+
     pub fn sub_sectors_map(&self) -> Vec<(&Coordinates, &SubSector)> {
         self.sub_sectors_map
             .iter()
@@ -210,6 +218,10 @@ impl ActiveMission {
         }
     }
 
+    pub fn start_return_trip(&mut self) {
+        self.state = ActiveMissionState::ReturnTrip(0)
+    }
+
     pub fn finish_turn(&mut self, state: &mut GameState, mission: &Mission) {
         use ActiveMissionState::*;
         match self.state {
@@ -246,4 +258,16 @@ pub enum ActiveMissionState {
     OutwardTrip(u16),
     ReturnTrip(u16),
     Returned,
+}
+
+impl std::string::ToString for ActiveMissionState {
+    fn to_string(&self) -> String {
+        use ActiveMissionState::*;
+        match *self {
+            AtDestination(turns) => String::from("AtDestination"),
+            OutwardTrip(turns) => String::from("OutwardTrip"),
+            ReturnTrip(turns) => String::from("ReturnTrip"),
+            Returned => String::from("Returned"),
+        }
+    }
 }
