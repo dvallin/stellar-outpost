@@ -136,6 +136,9 @@ impl Game {
         }
         return false;
     }
+    pub fn return_mission(&mut self) {
+        self.sector.return_mission()
+    }
 }
 
 pub trait Entity {

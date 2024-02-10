@@ -123,6 +123,12 @@ impl Sector {
         &self.active_mission
     }
 
+    pub fn return_mission(&mut self) {
+        self.active_mission
+            .as_mut()
+            .map(|mission| mission.start_return_trip());
+    }
+
     pub fn sub_sectors_map(&self) -> Vec<(&Coordinates, &SubSector)> {
         self.sub_sectors_map
             .iter()

@@ -56,6 +56,7 @@ impl State {
                 PushState(Char('r'), Research),
                 PushState(Char('s'), Sector(0, 0)),
                 ApplyDomainEvent(Enter, FinishTurn),
+                ApplyDomainEvent(Backspace, ReturnMission),
             ],
             Modules(i) => vec![
                 PopState(Esc),
@@ -131,6 +132,7 @@ impl State {
                     Sector(x, clamp(y - 1, app.game.sector.bounds_at_x(x))),
                 ),
                 PushState(Enter, SelectMission(x, y, 0)),
+                ApplyDomainEvent(Backspace, ReturnMission),
             ],
             SelectMission(x, y, m) => vec![
                 PopState(Esc),
@@ -251,6 +253,7 @@ enum DomainEvent {
     AssignCrewMemberToModule,
     FinishTurn,
     StartMission,
+    ReturnMission,
     IncrementPrepareForTurns,
     DecrementPrepareForTurns,
     AssignCrewMemberToMission,
@@ -343,6 +346,7 @@ impl App {
                             }
                             _ => (),
                         },
+                        ReturnMission => self.game.return_mission(),
                         AssignCrewMemberToMission => match self.current_state() {
                             AssignCrewToMission(c) => {
                                 self.game.prepare_crew_member_for_mission(*c);
